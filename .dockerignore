@@ -46,6 +46,8 @@ CODING_STANDARDS.md
 Dockerfile*
 docker-compose*.yml
 .dockerignore
+# Keep nginx.conf.template (needed for build)
+!nginx.conf.template
 
 # Render
 render.yaml

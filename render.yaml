@@ -25,6 +25,9 @@ services:
         - tsconfig.json
         - Dockerfile
         - nginx.conf
+        - nginx.conf.template
+        - nginx-main.conf
+        - docker-entrypoint.sh
         - scripts/**
       ignoredPaths:
         - README.md

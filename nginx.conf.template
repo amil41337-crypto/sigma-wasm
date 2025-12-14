@@ -1,0 +1,63 @@
+server {
+    listen $PORT;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Apply rate limiting (zones defined in main nginx.conf)
+    # 10 requests per second with burst of 20
+    limit_req zone=general burst=20 nodelay;
+    limit_req_status 429;
+
+    # Keep-alive optimizations (inherits from main config, but can override)
+    keepalive_timeout 65;
+    keepalive_requests 100;
+
+    # WASM MIME type (critical for WebAssembly)
+    location ~ \.wasm$ {
+        add_header Content-Type application/wasm;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        # CORS headers for WASM if needed
+        add_header Access-Control-Allow-Origin *;
+    }
+
+    # Serve static files
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Cache static assets with long expiration
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        access_log off;
+    }
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    
+    # Content Security Policy (adjust as needed for your app)
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https:; worker-src 'self' blob:; child-src 'self' blob:; frame-ancestors 'self';" always;
+    
+    # HSTS (only if using HTTPS - Render.com provides HTTPS)
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+
+    # Health check endpoint (for Render.com)
+    # No rate limiting on health checks
+    location /health {
+        limit_req off;
+        access_log off;
+        return 200 "healthy\n";
+        add_header Content-Type text/plain;
+    }
+
+    # Deny access to hidden files
+    location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+}
+

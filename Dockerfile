@@ -68,27 +68,42 @@ COPY vite.config.ts ./
 COPY tsconfig.json ./
 
 # Build frontend
-RUN npm run build
+# WASM is already built in stage 1, so just run vite build (skip build:wasm)
+RUN npx vite build
 
 # Stage 3: Runtime (nginx for static files)
 FROM nginx:alpine AS runtime
 
-# Install wget for health checks
-RUN apk add --no-cache wget
+# Install gettext for envsubst (dynamic port substitution) and wget for health checks
+RUN apk add --no-cache gettext wget
 
 # Copy built static files
 COPY --from=node-builder /app/dist /usr/share/nginx/html
 
-# Copy nginx configuration (ensures WASM MIME type and proper serving)
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Copy main nginx configuration with performance optimizations
+COPY nginx-main.conf /etc/nginx/nginx.conf
 
-# Expose port 80
+# Copy nginx server configuration template (will be processed with envsubst)
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+
+# Copy custom entrypoint script to handle PORT default
+COPY docker-entrypoint.sh /docker-entrypoint-custom.sh
+RUN chmod +x /docker-entrypoint-custom.sh
+
+# nginx:alpine processes templates in /etc/nginx/templates/ automatically
+# Our custom entrypoint ensures PORT has a default value for local testing
+# Render.com will always provide PORT environment variable
+
+# Expose port (Render.com will set PORT env var)
 EXPOSE 80
 
-# Health check (using wget if available, otherwise use basic check)
+# Health check endpoint at /health (Render.com uses healthCheckPath: /)
+# Using /health endpoint for Docker HEALTHCHECK, Render.com uses / from render.yaml
+# Note: PORT env var is set by Render.com, health check uses default 80 if not set
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost/ 2>/dev/null || exit 1
+  CMD sh -c 'PORT=${PORT:-80}; wget --no-verbose --tries=1 --spider http://localhost:$PORT/health 2>/dev/null || exit 1'
 
-# Start nginx
+# Use custom entrypoint that handles PORT default, then calls nginx:alpine's entrypoint
+ENTRYPOINT ["/docker-entrypoint-custom.sh"]
 CMD ["nginx", "-g", "daemon off;"]
 
