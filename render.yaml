@@ -21,6 +21,9 @@ services:
         - src/**
         - wasm-astar/**
         - wasm-preprocess/**
+        - wasm-preprocess-256m/**
+        - wasm-preprocess-image-captioning/**
+        - wasm-agent-tools/**
         - Cargo.toml
         - package.json
         - vite.config.ts

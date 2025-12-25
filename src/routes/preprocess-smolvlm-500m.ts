@@ -406,12 +406,24 @@ export const init = async (): Promise<void> => {
     
     // Show detailed error
     if (errorDiv) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       if (error instanceof WasmLoadError) {
-        errorDiv.textContent = `Failed to load WASM preprocessing module: ${error.message}`;
+        errorDiv.textContent = `Failed to load WASM preprocessing module: ${errorMsg}`;
       } else if (error instanceof WasmInitError) {
-        errorDiv.textContent = `WASM preprocessing module initialization failed: ${error.message}`;
+        errorDiv.textContent = `WASM preprocessing module initialization failed: ${errorMsg}`;
       } else if (error instanceof Error) {
-        errorDiv.textContent = `Error: ${error.message}`;
+        errorDiv.textContent = `Error: ${errorMsg}`;
+        if (error.stack) {
+          errorDiv.textContent += `\n\nStack: ${error.stack}`;
+        }
+        if ('cause' in error && error.cause) {
+          const causeMsg = error.cause instanceof Error 
+            ? error.cause.message 
+            : typeof error.cause === 'string' 
+              ? error.cause 
+              : JSON.stringify(error.cause);
+          errorDiv.textContent += `\n\nCause: ${causeMsg}`;
+        }
       } else {
         errorDiv.textContent = 'Unknown error loading WASM preprocessing module';
       }

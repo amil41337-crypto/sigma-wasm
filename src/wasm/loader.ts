@@ -23,7 +23,10 @@ export async function loadWasmModule<T extends WasmModuleBase>(
     if (error instanceof WasmInitError) {
       throw error;
     }
-    throw new WasmLoadError('Failed to load WASM module', error);
+    const errorMessage = error instanceof Error 
+      ? error.message 
+      : String(error);
+    throw new WasmLoadError(`Failed to load WASM module: ${errorMessage}`, error);
   }
 }
 

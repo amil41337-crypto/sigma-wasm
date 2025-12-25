@@ -164,12 +164,24 @@ export const init = async (): Promise<void> => {
   } catch (error) {
     // Show detailed error
     if (errorEl) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       if (error instanceof WasmLoadError) {
-        errorEl.textContent = `Failed to load WASM module: ${error.message}`;
+        errorEl.textContent = `Failed to load WASM module: ${errorMsg}`;
       } else if (error instanceof WasmInitError) {
-        errorEl.textContent = `WASM module initialization failed: ${error.message}`;
+        errorEl.textContent = `WASM module initialization failed: ${errorMsg}`;
       } else if (error instanceof Error) {
-        errorEl.textContent = `Error: ${error.message}`;
+        errorEl.textContent = `Error: ${errorMsg}`;
+        if (error.stack) {
+          errorEl.textContent += `\n\nStack: ${error.stack}`;
+        }
+        if ('cause' in error && error.cause) {
+          const causeMsg = error.cause instanceof Error 
+            ? error.cause.message 
+            : typeof error.cause === 'string' 
+              ? error.cause 
+              : JSON.stringify(error.cause);
+          errorEl.textContent += `\n\nCause: ${causeMsg}`;
+        }
       } else {
         errorEl.textContent = 'Unknown error loading WASM module';
       }

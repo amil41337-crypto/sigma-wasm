@@ -134,6 +134,7 @@ export async function init(): Promise<void> {
   try {
     if (addLogEntry) {
       addLogEntry('Initializing WASM agent tools module...', 'info');
+      addLogEntry('Import path: ../../pkg/wasm_agent_tools/wasm_agent_tools.js', 'info');
     }
     wasmModule = await loadWasmModule(getInitWasm, validateAgentToolsModule);
     if (addLogEntry) {
@@ -143,6 +144,17 @@ export async function init(): Promise<void> {
     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
     if (addLogEntry) {
       addLogEntry(`Failed to load WASM module: ${errorMsg}`, 'error');
+      if (error instanceof Error && error.stack) {
+        addLogEntry(`Error stack: ${error.stack}`, 'error');
+      }
+      if (error instanceof Error && 'cause' in error && error.cause) {
+        const causeMsg = error.cause instanceof Error 
+          ? error.cause.message 
+          : typeof error.cause === 'string' 
+            ? error.cause 
+            : JSON.stringify(error.cause);
+        addLogEntry(`Error cause: ${causeMsg}`, 'error');
+      }
     }
     errorEl.textContent = `Failed to load WASM module: ${errorMsg}`;
     throw error;
