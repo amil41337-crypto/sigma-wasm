@@ -9,6 +9,7 @@ use std::sync::{LazyLock, Mutex};
 struct PreprocessState {
     contrast: f32,
     cinematic: f32,
+    sepia: f32,
 }
 
 impl PreprocessState {
@@ -16,6 +17,7 @@ impl PreprocessState {
         PreprocessState {
             contrast: 0.0,
             cinematic: 0.0,
+            sepia: 0.0,
         }
     }
     
@@ -27,12 +29,20 @@ impl PreprocessState {
         self.cinematic = cinematic;
     }
     
+    fn set_sepia(&mut self, sepia: f32) {
+        self.sepia = sepia;
+    }
+    
     fn get_contrast(&self) -> f32 {
         self.contrast
     }
     
     fn get_cinematic(&self) -> f32 {
         self.cinematic
+    }
+    
+    fn get_sepia(&self) -> f32 {
+        self.sepia
     }
 }
 
@@ -98,6 +108,7 @@ pub fn preprocess_image_crop(
     
     // Decode image from bytes (supports PNG and JPEG)
     // Try PNG first, then JPEG
+    // The Cursor borrows from image_bytes, which is owned by this function
     let img = ImageReader::with_format(Cursor::new(&image_bytes), ImageFormat::Png)
         .decode()
         .or_else(|_| {
@@ -123,63 +134,8 @@ pub fn preprocess_image_crop(
     let rgba_img = resized_img.to_rgba8();
     
     // Return as Vec<u8> (RGBA bytes)
+    // image_bytes will be dropped here, but that's fine - we've already decoded the image
     Ok(rgba_img.into_raw())
-}
-
-/// Preprocess image data specifically for SmolVLM-500M model
-/// Performs: decode, center crop, resize, RGB conversion, normalization
-/// Returns normalized Float32Array (shape: [height * width * 3]) for ONNX Runtime
-/// Normalization: pixel values normalized to [0.0, 1.0] range
-#[wasm_bindgen]
-pub fn preprocess_image_for_smolvlm(
-    image_data: &[u8],
-    _source_width: u32,
-    _source_height: u32,
-    target_width: u32,
-    target_height: u32,
-) -> Result<Vec<f32>, JsValue> {
-    // Copy the image data into a Vec to ensure proper memory management
-    // This prevents issues with WASM memory deallocation
-    let image_bytes = image_data.to_vec();
-    
-    // Decode image from bytes (supports PNG and JPEG)
-    // Try PNG first, then JPEG
-    let img = ImageReader::with_format(Cursor::new(&image_bytes), ImageFormat::Png)
-        .decode()
-        .or_else(|_| {
-            ImageReader::with_format(Cursor::new(&image_bytes), ImageFormat::Jpeg)
-                .decode()
-        })
-        .map_err(|e| JsValue::from_str(&format!("Failed to decode image: {}", e)))?;
-
-    let (img_width, img_height) = img.dimensions();
-    
-    // Calculate center crop to square (use smaller dimension)
-    let crop_size = img_width.min(img_height);
-    let crop_x = (img_width - crop_size) / 2;
-    let crop_y = (img_height - crop_size) / 2;
-    
-    // Crop to square
-    let cropped_img = img.crop_imm(crop_x, crop_y, crop_size, crop_size);
-    
-    // Resize cropped square to target dimensions using Lanczos3
-    let resized_img = cropped_img.resize_exact(target_width, target_height, image::imageops::FilterType::Lanczos3);
-
-    // Convert to RGB format (remove alpha channel)
-    let rgb_img = resized_img.to_rgb8();
-    
-    // Normalize pixel values to [0.0, 1.0] range and convert to Float32Array
-    // Output format: [R, G, B, R, G, B, ...] flattened (height * width * 3)
-    let mut normalized_data = Vec::with_capacity((target_width * target_height * 3) as usize);
-    
-    for pixel in rgb_img.pixels() {
-        // Normalize each channel: pixel_value / 255.0
-        normalized_data.push(pixel[0] as f32 / 255.0); // R
-        normalized_data.push(pixel[1] as f32 / 255.0); // G
-        normalized_data.push(pixel[2] as f32 / 255.0); // B
-    }
-    
-    Ok(normalized_data)
 }
 
 /// Apply contrast enhancement to RGBA image data
@@ -277,6 +233,52 @@ pub fn apply_cinematic_filter(
     Ok(result)
 }
 
+/// Apply sepia filter to RGBA image data
+/// intensity: 0.0 to 1.0 (0.0 = no effect, 1.0 = full sepia effect)
+/// Sepia filter: applies classic sepia tone (warm brown/yellow tint)
+/// Returns processed image data as RGBA bytes
+#[wasm_bindgen]
+pub fn apply_sepia_filter(
+    image_data: &[u8],
+    width: u32,
+    height: u32,
+    intensity: f32,
+) -> Result<Vec<u8>, JsValue> {
+    if image_data.len() != (width * height * 4) as usize {
+        return Err(JsValue::from_str("Image data size mismatch"));
+    }
+    
+    let intensity = intensity.clamp(0.0, 1.0);
+    let mut result = Vec::with_capacity(image_data.len());
+    
+    // Sepia tone matrix coefficients (classic sepia formula)
+    // These create the warm brown/yellow vintage look
+    for chunk in image_data.chunks_exact(4) {
+        let r = chunk[0] as f32;
+        let g = chunk[1] as f32;
+        let b = chunk[2] as f32;
+        let a = chunk[3];
+        
+        // Classic sepia tone transformation
+        // Formula based on standard sepia matrix
+        let sepia_r = (r * 0.393 + g * 0.769 + b * 0.189).clamp(0.0, 255.0);
+        let sepia_g = (r * 0.349 + g * 0.686 + b * 0.168).clamp(0.0, 255.0);
+        let sepia_b = (r * 0.272 + g * 0.534 + b * 0.131).clamp(0.0, 255.0);
+        
+        // Blend between original and sepia based on intensity
+        let final_r = (r * (1.0 - intensity) + sepia_r * intensity).clamp(0.0, 255.0) as u8;
+        let final_g = (g * (1.0 - intensity) + sepia_g * intensity).clamp(0.0, 255.0) as u8;
+        let final_b = (b * (1.0 - intensity) + sepia_b * intensity).clamp(0.0, 255.0) as u8;
+        
+        result.push(final_r);
+        result.push(final_g);
+        result.push(final_b);
+        result.push(a);
+    }
+    
+    Ok(result)
+}
+
 /// Get preprocessing statistics
 #[wasm_bindgen]
 pub fn get_preprocess_stats(
@@ -313,6 +315,14 @@ pub fn set_cinematic(intensity: f32) {
     state.set_cinematic(intensity);
 }
 
+/// Set sepia filter intensity in WASM state
+/// Similar pattern to mouse_move in wasm-astar
+#[wasm_bindgen]
+pub fn set_sepia(intensity: f32) {
+    let state = &mut PREPROCESS_STATE.lock().unwrap();
+    state.set_sepia(intensity);
+}
+
 /// Get current contrast value from WASM state
 #[wasm_bindgen]
 pub fn get_contrast() -> f32 {
@@ -325,5 +335,12 @@ pub fn get_contrast() -> f32 {
 pub fn get_cinematic() -> f32 {
     let state = PREPROCESS_STATE.lock().unwrap();
     state.get_cinematic()
+}
+
+/// Get current sepia intensity from WASM state
+#[wasm_bindgen]
+pub fn get_sepia() -> f32 {
+    let state = PREPROCESS_STATE.lock().unwrap();
+    state.get_sepia()
 }
 

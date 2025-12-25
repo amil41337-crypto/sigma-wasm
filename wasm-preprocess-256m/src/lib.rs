@@ -126,12 +126,12 @@ pub fn preprocess_image_crop(
     Ok(rgba_img.into_raw())
 }
 
-/// Preprocess image data specifically for SmolVLM-500M model
+/// Preprocess image data specifically for SmolVLM-256M model
 /// Performs: decode, center crop, resize, RGB conversion, normalization
 /// Returns normalized Float32Array (shape: [height * width * 3]) for ONNX Runtime
 /// Normalization: pixel values normalized to [0.0, 1.0] range
 #[wasm_bindgen]
-pub fn preprocess_image_for_smolvlm(
+pub fn preprocess_image_for_smolvlm_256m(
     image_data: &[u8],
     _source_width: u32,
     _source_height: u32,

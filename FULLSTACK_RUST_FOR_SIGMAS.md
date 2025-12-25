@@ -159,7 +159,10 @@ When a user navigates to a URL, the router:
 ### Current Endpoints
 
 - **`/astar`**: A* pathfinding algorithm visualization with interactive tile-based world
-- **`/preprocess`**: Image and text preprocessing utilities for ML/AI workflows
+- **`/preprocess-smolvlm-500m`**: SmolVLM-500M vision-language model for image captioning and VQA
+- **`/preprocess-smolvlm-256m`**: SmolVLM-256M vision-language model (smaller, faster variant)
+- **`/image-captioning`**: ViT-GPT2 image captioning using Transformers.js
+- **`/function-calling`**: Function calling agent with DistilGPT-2 and WASM tools
 
 💡 **Tip**: This architecture is inspired by the pattern of using WASM for efficient, low-level computations (like preprocessing for client-side LLMs) while keeping the main application logic in TypeScript.
 
@@ -178,20 +181,32 @@ Cargo.toml              # Workspace root configuration
 wasm-astar/
 ├── Cargo.toml          # A* pathfinding crate configuration
 └── src/
-    ├── lib.rs          # Main entry point, WASM bindings
-    ├── world/
-    │   ├── mod.rs      # World state and A* algorithm
-    │   └── tile.rs     # Tile data structure
-    ├── engine/
-    │   └── mod.rs      # Engine state, input handling, FPS tracking
-    ├── browser/
-    │   └── mod.rs      # Browser API bindings
-    └── utils/
-        └── mod.rs      # Utility functions (logging, random)
+├── lib.rs          # Main entry point, WASM bindings
+├── world/
+│   ├── mod.rs      # World state and A* algorithm
+│   └── tile.rs     # Tile data structure
+├── engine/
+│   └── mod.rs      # Engine state, input handling, FPS tracking
+├── browser/
+│   └── mod.rs      # Browser API bindings
+└── utils/
+    └── mod.rs      # Utility functions (logging, random)
 wasm-preprocess/
 ├── Cargo.toml          # Preprocessing crate configuration
 └── src/
     └── lib.rs          # Image and text preprocessing functions
+wasm-preprocess-256m/
+├── Cargo.toml          # SmolVLM-256M preprocessing crate
+└── src/
+    └── lib.rs          # Image preprocessing for 256M model
+wasm-preprocess-image-captioning/
+├── Cargo.toml          # Image captioning preprocessing crate
+└── src/
+    └── lib.rs          # Image preprocessing and filters
+wasm-agent-tools/
+├── Cargo.toml          # Agent tools crate configuration
+└── src/
+    └── lib.rs          # Function calling tools (calculate, process_text, get_stats)
 ```
 
 🧠 **Concept Break**: Why a Workspace?
@@ -328,7 +343,13 @@ The workspace is defined by the root `Cargo.toml`:
 
 ```toml:Cargo.toml
 [workspace]
-members = ["wasm-astar", "wasm-preprocess"]
+members = [
+  "wasm-astar",
+  "wasm-preprocess",
+  "wasm-preprocess-256m",
+  "wasm-preprocess-image-captioning",
+  "wasm-agent-tools"
+]
 resolver = "2"
 
 [workspace.package]
@@ -379,8 +400,16 @@ The TypeScript codebase is organized as follows:
 src/
 ├── main.ts              # Client-side router
 ├── routes/
-│   ├── astar.ts         # A* pathfinding route handler
-│   └── preprocess.ts    # Preprocessing route handler
+│   ├── astar.ts                    # A* pathfinding route handler
+│   ├── preprocess-smolvlm-500m.ts  # SmolVLM-500M route handler
+│   ├── preprocess-smolvlm-256m.ts  # SmolVLM-256M route handler
+│   ├── image-captioning.ts         # ViT-GPT2 image captioning route handler
+│   └── function-calling.ts         # Function calling agent route handler
+├── models/
+│   ├── smolvlm.ts                  # SmolVLM-500M model logic
+│   ├── smolvlm-256m.ts             # SmolVLM-256M model logic
+│   ├── image-captioning.ts         # ViT-GPT2 model logic
+│   └── function-calling.ts         # Function calling agent logic
 ├── wasm/
 │   ├── loader.ts        # Generic WASM module loader
 │   └── types.ts         # Shared WASM type definitions
@@ -494,7 +523,7 @@ export const init = async (): Promise<void> => {
   );
   
   // 4. Initialize the WASM module
-  wasmModule.wasm_init(debug ? 1 : 0, renderIntervalMs, window.innerWidth, window.innerHeight);
+    wasmModule.wasm_init(debug ? 1 : 0, renderIntervalMs, window.innerWidth, window.innerHeight);
 };
 ```
 
@@ -643,6 +672,12 @@ export interface WasmModulePreprocess extends WasmModuleBase {
   preprocess_text(...): Uint32Array;
   // ... more methods
 }
+
+export interface WasmModuleAgentTools extends WasmModuleBase {
+  calculate(expression: string): string;
+  process_text(text: string, operation: string): string;
+  get_stats(data: Uint8Array): string;
+}
 ```
 
 Each WASM module interface extends `WasmModuleBase`, ensuring all modules have the required `memory` property while allowing module-specific functions.
@@ -728,6 +763,9 @@ fi
 # Build each WASM module
 ./scripts/build-wasm.sh wasm-astar pkg/wasm_astar
 ./scripts/build-wasm.sh wasm-preprocess pkg/wasm_preprocess
+./scripts/build-wasm.sh wasm-preprocess-256m pkg/wasm_preprocess_256m
+./scripts/build-wasm.sh wasm-preprocess-image-captioning pkg/wasm_preprocess_image_captioning
+./scripts/build-wasm.sh wasm-agent-tools pkg/wasm_agent_tools
 
 echo "ALL WASM MODULES BUILT SUCCESSFULLY"
 ```
@@ -775,11 +813,26 @@ pkg/
 │   ├── wasm_astar.js            # JavaScript glue code
 │   ├── wasm_astar.d.ts          # TypeScript type definitions
 │   └── wasm_astar_bg.wasm.d.ts  # WASM binary type definitions
-└── wasm_preprocess/
-    ├── wasm_preprocess_bg.wasm
-    ├── wasm_preprocess.js
-    ├── wasm_preprocess.d.ts
-    └── wasm_preprocess_bg.wasm.d.ts
+├── wasm_preprocess/
+│   ├── wasm_preprocess_bg.wasm
+│   ├── wasm_preprocess.js
+│   ├── wasm_preprocess.d.ts
+│   └── wasm_preprocess_bg.wasm.d.ts
+├── wasm_preprocess_256m/
+│   ├── wasm_preprocess_256m_bg.wasm
+│   ├── wasm_preprocess_256m.js
+│   ├── wasm_preprocess_256m.d.ts
+│   └── wasm_preprocess_256m_bg.wasm.d.ts
+├── wasm_preprocess_image_captioning/
+│   ├── wasm_preprocess_image_captioning_bg.wasm
+│   ├── wasm_preprocess_image_captioning.js
+│   ├── wasm_preprocess_image_captioning.d.ts
+│   └── wasm_preprocess_image_captioning_bg.wasm.d.ts
+└── wasm_agent_tools/
+    ├── wasm_agent_tools_bg.wasm
+    ├── wasm_agent_tools.js
+    ├── wasm_agent_tools.d.ts
+    └── wasm_agent_tools_bg.wasm.d.ts
 ```
 
 Each module is self-contained with its own JavaScript bindings and type definitions.
@@ -792,8 +845,12 @@ Each route handler loads its own WASM module. Vite handles WASM loading automati
 import initWasm from '../../pkg/wasm_astar/wasm_astar.js';
 ```
 
-```typescript:src/routes/preprocess.ts
+```typescript:src/routes/preprocess-smolvlm-500m.ts
 import initWasm from '../../pkg/wasm_preprocess/wasm_preprocess.js';
+```
+
+```typescript:src/routes/function-calling.ts
+import initWasm from '../../pkg/wasm_agent_tools/wasm_agent_tools.js';
 ```
 
 Vite's WASM plugin:
@@ -842,6 +899,67 @@ Why use WASM for these computations?
 - Any code that benefits from Rust's performance and safety
 
 The multi-module architecture allows each endpoint to showcase a different use case for WASM, demonstrating its versatility.
+
+---
+
+## Transformers.js Integration
+
+Some endpoints use Transformers.js for client-side LLM inference, which provides a simpler API than manual ONNX model management.
+
+### What is Transformers.js?
+
+Transformers.js is a JavaScript library that runs Hugging Face models directly in the browser. It automatically:
+- Downloads and caches ONNX models from Hugging Face
+- Handles tokenization
+- Manages model inference
+- Provides type-safe TypeScript interfaces
+
+### Endpoints Using Transformers.js
+
+1. **`/image-captioning`**: Uses `Xenova/vit-gpt2-image-captioning` for image captioning
+2. **`/function-calling`**: Uses `Xenova/distilgpt2` for text generation in the Function Calling Agent
+
+### How It Works
+
+```typescript
+import { pipeline, type Pipeline } from '@xenova/transformers';
+
+// Initialize pipeline (automatically downloads and loads model)
+const imageToTextPipeline = await pipeline(
+  'image-to-text',
+  'Xenova/vit-gpt2-image-captioning'
+);
+
+// Use pipeline
+const result = await imageToTextPipeline(imageDataUrl);
+```
+
+### CORS Proxy Integration
+
+Transformers.js uses a custom fetch function to handle CORS restrictions when loading models from Hugging Face:
+
+```typescript
+import { env } from '@xenova/transformers';
+
+env.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+  return customFetch(input, init, onLog); // Custom fetch with CORS proxy support
+};
+```
+
+### Benefits
+
+- **Simplified API**: No manual tensor management
+- **Automatic Caching**: Models cached in IndexedDB
+- **Type Safety**: TypeScript interfaces for pipeline results
+- **Model Variety**: Access to many pre-converted Hugging Face models
+
+### Trade-offs
+
+- **Less Control**: Can't customize inference as much as manual ONNX
+- **Model Selection**: Limited to models converted for Transformers.js
+- **File Size**: Includes tokenizers and model loaders
+
+For endpoints that need maximum control (like SmolVLM), we use manual ONNX management. For simpler use cases, Transformers.js provides a better developer experience.
 
 ---
 
@@ -899,11 +1017,17 @@ WORKDIR /app
 COPY Cargo.toml ./
 COPY wasm-astar/Cargo.toml ./wasm-astar/
 COPY wasm-preprocess/Cargo.toml ./wasm-preprocess/
+COPY wasm-preprocess-256m/Cargo.toml ./wasm-preprocess-256m/
+COPY wasm-preprocess-image-captioning/Cargo.toml ./wasm-preprocess-image-captioning/
+COPY wasm-agent-tools/Cargo.toml ./wasm-agent-tools/
 
 # Create dummy src files to cache dependencies
-RUN mkdir -p wasm-astar/src wasm-preprocess/src && \
+RUN mkdir -p wasm-astar/src wasm-preprocess/src wasm-preprocess-256m/src wasm-preprocess-image-captioning/src wasm-agent-tools/src && \
     echo "fn main() {}" > wasm-astar/src/lib.rs || true && \
-    echo "fn main() {}" > wasm-preprocess/src/lib.rs || true
+    echo "fn main() {}" > wasm-preprocess/src/lib.rs || true && \
+    echo "fn main() {}" > wasm-preprocess-256m/src/lib.rs || true && \
+    echo "fn main() {}" > wasm-preprocess-image-captioning/src/lib.rs || true && \
+    echo "fn main() {}" > wasm-agent-tools/src/lib.rs || true
 
 # Build dependencies (cached if Cargo.toml unchanged)
 RUN cargo build --target wasm32-unknown-unknown --release --workspace || true
@@ -911,6 +1035,9 @@ RUN cargo build --target wasm32-unknown-unknown --release --workspace || true
 # Copy actual source code
 COPY wasm-astar ./wasm-astar
 COPY wasm-preprocess ./wasm-preprocess
+COPY wasm-preprocess-256m ./wasm-preprocess-256m
+COPY wasm-preprocess-image-captioning ./wasm-preprocess-image-captioning
+COPY wasm-agent-tools ./wasm-agent-tools
 COPY scripts ./scripts
 
 # Make build scripts executable
@@ -1107,6 +1234,9 @@ services:
         - src/**
         - wasm-astar/**
         - wasm-preprocess/**
+        - wasm-preprocess-256m/**
+        - wasm-preprocess-image-captioning/**
+        - wasm-agent-tools/**
         - Cargo.toml
         - package.json
         - vite.config.ts
@@ -1292,7 +1422,7 @@ This is a complete, production-ready stack. Every component serves a purpose, ev
 
 ## Adding New Endpoints
 
-One of the key benefits of this architecture is how easy it is to add new endpoints. Here's a step-by-step guide using the `wasm-preprocess` endpoint as an example:
+One of the key benefits of this architecture is how easy it is to add new endpoints. Here's a step-by-step guide. We'll show examples for both WASM-based endpoints and Transformers.js-based endpoints.
 
 ### Step 1: Create a New Rust Crate
 
@@ -1330,38 +1460,37 @@ Update the root `Cargo.toml`:
 members = ["wasm-astar", "wasm-preprocess"]  # Add your crate here
 ```
 
-### Step 3: Implement Rust Code
+#### Step 3: Implement Rust Code
 
-Create `wasm-preprocess/src/lib.rs` with your WASM functions:
+Create `wasm-agent-tools/src/lib.rs` with your WASM functions:
 
-```rust:wasm-preprocess/src/lib.rs
+```rust:wasm-agent-tools/src/lib.rs
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
-pub fn preprocess_image(
-    image_data: &[u8],
-    source_width: u32,
-    source_height: u32,
-    target_width: u32,
-    target_height: u32,
-) -> Result<Vec<u8>, JsValue> {
+pub fn calculate(expression: &str) -> Result<String, JsValue> {
+    // Your implementation
+}
+
+#[wasm_bindgen]
+pub fn process_text(text: &str, operation: &str) -> Result<String, JsValue> {
     // Your implementation
 }
 ```
 
-### Step 4: Create Route Handler
+#### Step 4: Create Route Handler
 
-Create `src/routes/preprocess.ts`:
+Create `src/routes/function-calling.ts`:
 
-```typescript:src/routes/preprocess.ts
-import initWasm from '../../pkg/wasm_preprocess/wasm_preprocess.js';
-import { loadWasmModule, validateWasmModule } from '../wasm/loader';
-import type { WasmModulePreprocess } from '../wasm/types';
+```typescript:src/routes/function-calling.ts
+import initWasm from '../../pkg/wasm_agent_tools/wasm_agent_tools.js';
+import { loadWasmModule } from '../wasm/loader';
+import type { WasmModuleAgentTools } from '../types';
 
 export const init = async (): Promise<void> => {
-  const wasmModule = await loadWasmModule<WasmModulePreprocess>(
+  const wasmModule = await loadWasmModule<WasmModuleAgentTools>(
     async () => await initWasm(),
-    validatePreprocessModule
+    validateAgentToolsModule
   );
   
   // Initialize your endpoint
@@ -1369,31 +1498,32 @@ export const init = async (): Promise<void> => {
 };
 ```
 
-### Step 5: Add Type Definitions
+#### Step 5: Add Type Definitions
 
-Update `src/wasm/types.ts`:
+Update `src/types.ts`:
 
-```typescript:src/wasm/types.ts
-export interface WasmModulePreprocess extends WasmModuleBase {
-  preprocess_image(...): Uint8Array;
-  // ... more methods
+```typescript:src/types.ts
+export interface WasmModuleAgentTools extends WasmModuleBase {
+  calculate(expression: string): string;
+  process_text(text: string, operation: string): string;
+  get_stats(data: Uint8Array): string;
 }
 ```
 
-### Step 6: Create HTML Page
+#### Step 6: Create HTML Page
 
-Create `pages/preprocess.html`:
+Create `pages/function-calling.html`:
 
-```html:pages/preprocess.html
+```html:pages/function-calling.html
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Preprocessing - Sigma WASM</title>
+    <title>Function Calling Agent - Sigma WASM</title>
     <link rel="stylesheet" href="/src/styles.css">
 </head>
 <body>
     <div class="container">
-        <h1>WASM Preprocessing Demo</h1>
+        <h1>Function Calling Agent Demo</h1>
         <!-- Your UI here -->
     </div>
     <script type="module" src="/src/main.ts"></script>
@@ -1401,47 +1531,81 @@ Create `pages/preprocess.html`:
 </html>
 ```
 
-### Step 7: Register Route
+#### Step 7: Register Route
 
 Update `src/main.ts`:
 
 ```typescript:src/main.ts
-import { init as initPreprocess } from './routes/preprocess';
+import { init as initFunctionCalling } from './routes/function-calling';
 
-routes.set('/preprocess', initPreprocess);
+routes.set('/function-calling', initFunctionCalling);
 ```
 
-### Step 8: Update Vite Config (if needed)
+#### Step 8: Update Build Scripts
 
-If you need a custom entry point, update `vite.config.ts`:
+Update `scripts/build.sh` to include your new module:
 
-```typescript:vite.config.ts
-rollupOptions: {
-  input: {
-    preprocess: resolve(__dirname, 'pages/preprocess.html'),
-    // ... other entries
-  },
+```bash:scripts/build.sh
+./scripts/build-wasm.sh wasm-agent-tools pkg/wasm_agent_tools
+```
+
+#### Step 9: Update Dockerfile
+
+Add your crate to the Docker build process (see Dockerfile section above for details).
+
+### Example 2: Transformers.js-Based Endpoint (like `/image-captioning`)
+
+For endpoints using Transformers.js, you don't need a WASM module. Instead:
+
+#### Step 1: Create Model Module
+
+Create `src/models/image-captioning.ts`:
+
+```typescript:src/models/image-captioning.ts
+import { pipeline, type Pipeline } from '@xenova/transformers';
+
+const MODEL_ID = 'Xenova/vit-gpt2-image-captioning';
+
+export async function loadModel(): Promise<Pipeline> {
+  return await pipeline('image-to-text', MODEL_ID);
+}
+
+export async function generateCaption(
+  imageDataUrl: string,
+  model: Pipeline
+): Promise<string> {
+  const result = await model(imageDataUrl);
+  // Extract and return caption
+  return caption;
 }
 ```
 
-### Step 9: Build and Test
+#### Step 2: Create Route Handler
 
-The build scripts automatically handle the new crate:
+Create `src/routes/image-captioning.ts`:
 
-```bash
-./scripts/build.sh  # Builds all workspace members
-npm run dev         # Test locally
+```typescript:src/routes/image-captioning.ts
+import { loadModel, generateCaption } from '../models/image-captioning';
+
+export const init = async (): Promise<void> => {
+  const model = await loadModel();
+  setupUI(model, generateCaption);
+};
 ```
+
+#### Step 3: Create HTML Page and Register Route
+
+Follow the same steps as Example 1 for HTML and route registration.
 
 ### That's It!
 
 The build system automatically:
-- Builds your new crate as part of the workspace
-- Generates JavaScript bindings
+- Builds your new crate (if WASM-based) as part of the workspace
+- Generates JavaScript bindings (if WASM-based)
 - Includes it in the Docker build
 - Makes it available to your route handler
 
-💡 **Tip**: Follow the pattern established by existing endpoints. The shared utilities (`loader.ts`, `types.ts`) ensure consistency and type safety across all endpoints.
+💡 **Tip**: Follow the pattern established by existing endpoints. The shared utilities (`loader.ts`, `types.ts`) ensure consistency and type safety across all endpoints. For Transformers.js endpoints, you can reference the `/image-captioning` or `/function-calling` implementations.
 
 ---
 

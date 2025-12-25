@@ -26,14 +26,20 @@ WORKDIR /app
 COPY Cargo.toml ./
 COPY wasm-astar/Cargo.toml ./wasm-astar/
 COPY wasm-preprocess/Cargo.toml ./wasm-preprocess/
+COPY wasm-preprocess-256m/Cargo.toml ./wasm-preprocess-256m/
+COPY wasm-preprocess-image-captioning/Cargo.toml ./wasm-preprocess-image-captioning/
+COPY wasm-agent-tools/Cargo.toml ./wasm-agent-tools/
 
 # Add wasm32 target (must be done before building for wasm32-unknown-unknown)
 RUN rustup target add wasm32-unknown-unknown
 
 # Create dummy src files to cache dependencies
-RUN mkdir -p wasm-astar/src wasm-preprocess/src && \
+RUN mkdir -p wasm-astar/src wasm-preprocess/src wasm-preprocess-256m/src wasm-preprocess-image-captioning/src wasm-agent-tools/src && \
     echo "fn main() {}" > wasm-astar/src/lib.rs || true && \
-    echo "fn main() {}" > wasm-preprocess/src/lib.rs || true
+    echo "fn main() {}" > wasm-preprocess/src/lib.rs || true && \
+    echo "fn main() {}" > wasm-preprocess-256m/src/lib.rs || true && \
+    echo "fn main() {}" > wasm-preprocess-image-captioning/src/lib.rs || true && \
+    echo "fn main() {}" > wasm-agent-tools/src/lib.rs || true
 
 # Build dependencies only (for caching)
 RUN cargo build --target wasm32-unknown-unknown --release --workspace || true
@@ -41,6 +47,9 @@ RUN cargo build --target wasm32-unknown-unknown --release --workspace || true
 # Copy actual source code
 COPY wasm-astar ./wasm-astar
 COPY wasm-preprocess ./wasm-preprocess
+COPY wasm-preprocess-256m ./wasm-preprocess-256m
+COPY wasm-preprocess-image-captioning ./wasm-preprocess-image-captioning
+COPY wasm-agent-tools ./wasm-agent-tools
 COPY scripts ./scripts
 
 # Make build scripts executable

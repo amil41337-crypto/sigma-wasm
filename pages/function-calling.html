@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Function Calling Agent - Sigma WASM</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="icon" type="image/webp" href="/rustacean.webp">
+    <link rel="apple-touch-icon" href="/rustacean.webp">
+    <link rel="stylesheet" href="/src/styles.css">
+</head>
+<body>
+    <div id="fullscreen">
+        <div class="preprocess-container">
+            <a href="/" class="home-link" title="Home">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                    <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                </svg>
+            </a>
+            <h1>Function Calling Agent Demo</h1>
+            <div id="error" class="error-message"></div>
+            <div id="loadingIndicator" class="loading-indicator"></div>
+            <div id="downloadCheckmarks" class="download-checkmarks-container">
+                <div id="checkmark-model" class="download-checkmark">
+                    <span class="checkmark-icon">✓</span>
+                    <span>Agent Model</span>
+                </div>
+            </div>
+            <div id="systemLogs" class="system-logs-container">
+                <h3>System Logs</h3>
+                <div id="systemLogsContent" class="system-logs-content"></div>
+            </div>
+            
+            <div class="preprocess-section">
+                <h2>About Function Calling Agent</h2>
+                <p>
+                    This demo showcases a <strong>client-side autonomous agent</strong> with local LLM inference 
+                    and <strong>function calling</strong> capabilities. The agent can use tools to accomplish tasks.
+                </p>
+                <p>
+                    <strong>Architecture:</strong> Uses a small LLM (DistilGPT-2) running in the browser via Transformers.js, 
+                    with WebAssembly tools for function execution. The agent can call functions like <code>calculate</code>, 
+                    <code>process_text</code>, and <code>get_stats</code> to solve problems.
+                </p>
+                <p>
+                    <strong>Function Calling:</strong> The agent analyzes the goal, decides which tools to use, calls them via WASM, 
+                    and uses the results to generate a final response. All processing happens client-side.
+                </p>
+                <p>
+                    <strong>Available Tools:</strong>
+                    <ul>
+                        <li><strong>calculate(expression):</strong> Evaluate mathematical expressions</li>
+                        <li><strong>process_text(text, operation):</strong> Process text (uppercase, lowercase, reverse, length, word_count)</li>
+                        <li><strong>get_stats(data):</strong> Get statistics from data arrays</li>
+                    </ul>
+                </p>
+            </div>
+            
+            <div class="preprocess-section">
+                <h2>Agent Execution</h2>
+                <p>Enter a goal or task for the agent to accomplish:</p>
+                
+                <div style="margin: 1rem 0;">
+                    <label for="goalInput">Goal:</label>
+                    <textarea id="goalInput" rows="3" style="width: 100%; padding: 0.5rem; font-family: monospace;" placeholder="Example: What is 15 * 23 + 100?"></textarea>
+                </div>
+                
+                <button id="executeBtn">Execute</button>
+                <div id="thinkingIndicator" class="thinking-indicator">
+                    <span class="sparkles">✨</span>
+                    <span>Thinking...</span>
+                </div>
+                
+                <div id="clarificationDialog" class="clarification-dialog hidden">
+                    <div class="clarification-content">
+                        <h3>Clarification Needed</h3>
+                        <p>What operation should be performed on: <strong id="clarificationText"></strong>?</p>
+                        <div id="clarificationOptions" class="clarification-options"></div>
+                        <button id="clarificationCancel" class="clarification-cancel">Cancel</button>
+                    </div>
+                </div>
+                
+                <div style="margin: 1rem 0;">
+                    <h3>Agent Steps</h3>
+                    <div id="agentOutput" style="border: 1px solid #333; padding: 1rem; max-height: 400px; overflow-y: auto; background: #1a1a1a; font-family: monospace; font-size: 0.9rem;"></div>
+                </div>
+                
+                <div style="margin: 1rem 0;">
+                    <h3>Final Answer</h3>
+                    <div id="finalAnswer" style="border: 1px solid #333; padding: 1rem; background: #1a1a1a; font-family: monospace; font-size: 1rem; min-height: 2rem;"></div>
+                </div>
+            </div>
+            
+        </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
+

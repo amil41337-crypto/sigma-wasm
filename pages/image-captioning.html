@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ViT-GPT2 Image Captioning & VQA - Sigma WASM</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="icon" type="image/webp" href="/rustacean.webp">
+    <link rel="apple-touch-icon" href="/rustacean.webp">
+    <link rel="stylesheet" href="/src/styles.css">
+</head>
+<body>
+    <div id="fullscreen">
+        <div class="preprocess-container">
+            <a href="/" class="home-link" title="Home">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                    <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                </svg>
+            </a>
+            <h1>Image Captioning Demo</h1>
+            <div id="error" class="error-message"></div>
+            <div id="loadingIndicator" class="loading-indicator"></div>
+            <div id="downloadCheckmarks" class="download-checkmarks-container">
+                <div id="checkmark-model" class="download-checkmark">
+                    <span class="checkmark-icon">✓</span>
+                    <span>ViT-GPT2 Model</span>
+                </div>
+            </div>
+            <div id="systemLogs" class="system-logs-container">
+                <h3>System Logs</h3>
+                <div id="systemLogsContent" class="system-logs-content"></div>
+            </div>
+            
+            <div class="preprocess-section">
+                <h2>About ViT-GPT2 Image Captioning</h2>
+                <p>
+                    This demo showcases <strong>Image Captioning</strong> and <strong>Visual Question Answering (VQA)</strong> 
+                    using the <strong>ViT-GPT2 (Vision Transformer + GPT-2)</strong> model, 
+                    integrated with <strong>WebAssembly (WASM) preprocessing</strong> for high-performance image preparation.
+                </p>
+                <p>
+                    <strong>Architecture:</strong> Images are preprocessed using Rust-compiled WASM (Lanczos3 resizing), 
+                    then passed to ViT-GPT2 running in the browser via Transformers.js. The model performs captioning and VQA 
+                    entirely client-side using WebAssembly acceleration.
+                </p>
+                <p>
+                    <strong>Image Processing:</strong> WASM preprocessing resizes images using high-quality Lanczos3 filtering. 
+                    The preprocessed image is then fed to the ViT-GPT2 model for inference, generating descriptions or answers to questions.
+                </p>
+                <p>
+                    <strong>Features:</strong>
+                    <ul>
+                        <li><strong>Image Captioning:</strong> Generate descriptions of visual content</li>
+                        <li><strong>Visual Question Answering:</strong> Answer questions based on image/stream content</li>
+                    </ul>
+                </p>
+                <p>
+                    <strong>Model:</strong> ViT-GPT2 runs entirely in the browser using Transformers.js with WebAssembly acceleration, 
+                    enabling fully on-device AI without server calls.
+                </p>
+            </div>
+            
+            <div class="preprocess-section">
+                <h2>Image Captioning</h2>
+                <p>Upload an image or use your webcam to capture a snapshot, then generate a description of the visual content</p>
+            
+                <div style="margin: 1rem 0;">
+                    <h3>Webcam Capture</h3>
+                    <video id="webcamVideo" autoplay playsinline style="max-width: 100%; border: 1px solid #333; border-radius: 4px; display: none;"></video>
+                    <div id="webcamControls" style="margin: 0.5rem 0;">
+                        <button id="startWebcamBtn">Start Webcam</button>
+                        <button id="stopWebcamBtn" style="display: none;">Stop Webcam</button>
+                        <button id="snapshotBtn" style="display: none;">Capture Snapshot</button>
+                    </div>
+                </div>
+                
+                <div style="margin: 1rem 0;">
+                    <h3>Or Upload Image</h3>
+                    <input type="file" id="imageInput" accept="image/*">
+                    <div id="imagePreviewContainer">
+                        <img id="imagePreview" alt="Image preview">
+                    </div>
+                </div>
+                
+                <div style="margin: 1rem 0;">
+                    <h3>Image Filters</h3>
+                    <div style="margin: 0.5rem 0;">
+                        <label for="contrastSlider">Contrast: <span id="contrastValue">0</span></label>
+                        <input type="range" id="contrastSlider" min="-100" max="100" value="0" step="1">
+                    </div>
+                    <div style="margin: 0.5rem 0;">
+                        <label for="cinematicSlider">Cinematic Filter: <span id="cinematicValue">0</span>%</label>
+                        <input type="range" id="cinematicSlider" min="0" max="100" value="0" step="1">
+                    </div>
+                    <div style="margin: 0.5rem 0;">
+                        <label for="sepiaSlider">Sepia Filter: <span id="sepiaValue">0</span>%</label>
+                        <input type="range" id="sepiaSlider" min="0" max="100" value="0" step="1">
+                    </div>
+                </div>
+                
+                <button id="processImageBtn">Generate Caption</button>
+                <div>
+                    <canvas id="imageOutput"></canvas>
+                </div>
+                <div id="statsOutput"></div>
+            </div>
+            
+        </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

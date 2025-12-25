@@ -1,6 +1,9 @@
 // Simple client-side router
 import { init as initAstar } from './routes/astar';
-import { init as initPreprocess } from './routes/preprocess';
+import { init as initPreprocessSmolvlm500m } from './routes/preprocess-smolvlm-500m';
+import { init as initPreprocessSmolvlm256m } from './routes/preprocess-smolvlm-256m';
+import { init as initImageCaptioning } from './routes/image-captioning';
+import { init as initFunctionCalling } from './routes/function-calling';
 
 type RouteHandler = () => Promise<void>;
 
@@ -8,7 +11,10 @@ const routes: Map<string, RouteHandler> = new Map();
 
 // Register routes
 routes.set('/astar', initAstar);
-routes.set('/preprocess', initPreprocess);
+routes.set('/preprocess-smolvlm-500m', initPreprocessSmolvlm500m);
+routes.set('/preprocess-smolvlm-256m', initPreprocessSmolvlm256m);
+routes.set('/image-captioning', initImageCaptioning);
+routes.set('/function-calling', initFunctionCalling);
 
 async function route(): Promise<void> {
   const path = window.location.pathname;
@@ -33,10 +39,16 @@ async function route(): Promise<void> {
   
   // Also check for /pages/*.html paths (for direct HTML file access in dev)
   if (!handler) {
-    if (path.includes('preprocess')) {
-      handler = routes.get('/preprocess');
+    if (path.includes('preprocess-smolvlm-500m')) {
+      handler = routes.get('/preprocess-smolvlm-500m');
+    } else if (path.includes('preprocess-smolvlm-256m')) {
+      handler = routes.get('/preprocess-smolvlm-256m');
     } else if (path.includes('astar')) {
       handler = routes.get('/astar');
+    } else if (path.includes('image-captioning')) {
+      handler = routes.get('/image-captioning');
+    } else if (path.includes('function-calling')) {
+      handler = routes.get('/function-calling');
     }
   }
   

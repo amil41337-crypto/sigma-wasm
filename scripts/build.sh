@@ -20,6 +20,15 @@ echo "Building wasm-astar..."
 echo "Building wasm-preprocess..."
 ./scripts/build-wasm.sh wasm-preprocess pkg/wasm_preprocess
 
+echo "Building wasm-preprocess-256m..."
+./scripts/build-wasm.sh wasm-preprocess-256m pkg/wasm_preprocess_256m
+
+echo "Building wasm-preprocess-image-captioning..."
+./scripts/build-wasm.sh wasm-preprocess-image-captioning pkg/wasm_preprocess_image_captioning
+
+echo "Building wasm-agent-tools..."
+./scripts/build-wasm.sh wasm-agent-tools pkg/wasm_agent_tools
+
 echo "==========================================================="
 echo "ALL WASM MODULES BUILT SUCCESSFULLY"
 echo "==========================================================="
