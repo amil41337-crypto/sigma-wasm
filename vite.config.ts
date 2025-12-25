@@ -98,6 +98,11 @@ export default defineConfig({
       output: {
         format: 'es',
       },
+      external: (id) => {
+        // Mark pkg/ directory imports as external - they should be loaded at runtime, not bundled
+        // This preserves import.meta.url resolution for WASM binary loading
+        return id.includes('/pkg/') || id.includes('\\pkg\\');
+      },
     },
   },
   server: {
