@@ -55,18 +55,6 @@ impl WfcState {
     fn get_tile(&self, q: i32, r: i32) -> Option<TileType> {
         self.grid.get(&(q, r)).copied()
     }
-    
-    /// Get all 6 hex neighbors of a coordinate
-    fn get_hex_neighbors(&self, q: i32, r: i32) -> Vec<(i32, i32)> {
-        vec![
-            (q + 1, r),
-            (q - 1, r),
-            (q, r + 1),
-            (q, r - 1),
-            (q + 1, r - 1),
-            (q - 1, r + 1),
-        ]
-    }
 }
 
 /// Hex coordinate structure for Voronoi generation
@@ -94,7 +82,7 @@ fn hex_distance(q1: i32, r1: i32, q2: i32, r2: i32) -> i32 {
     ((q1 - q2).abs() + (r1 - r2).abs() + (s1 - s2).abs()) / 2
 }
 
-/// A* node for pathfinding
+/// A* node for pathfinding with parent pointer for path reconstruction
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct AStarNode {
     q: i32,
@@ -102,16 +90,20 @@ struct AStarNode {
     g: i32,
     h: i32,
     f: i32,
+    parent_q: i32,
+    parent_r: i32,
 }
 
 impl AStarNode {
-    fn new(q: i32, r: i32, g: i32, h: i32) -> Self {
+    fn new(q: i32, r: i32, g: i32, h: i32, parent_q: i32, parent_r: i32) -> Self {
         AStarNode {
             q,
             r,
             g,
             h,
             f: g + h,
+            parent_q,
+            parent_r,
         }
     }
 }
@@ -140,6 +132,97 @@ fn get_hex_neighbors(q: i32, r: i32) -> Vec<(i32, i32)> {
         (q + 1, r - 1),
         (q - 1, r + 1),
     ]
+}
+
+/// Convert axial coordinates to cube coordinates
+/// Cube coordinates: (q, r, s) where q + r + s = 0
+fn axial_to_cube(q: i32, r: i32) -> CubeCoord {
+    CubeCoord {
+        q,
+        r,
+        s: -q - r,
+    }
+}
+
+/// Calculate cube distance between two cube coordinates
+/// Formula: max(|dq|, |dr|, |ds|)
+/// This matches TypeScript HEX_UTILS.cubeDistance
+fn cube_distance(a: CubeCoord, b: CubeCoord) -> i32 {
+    (a.q - b.q).abs().max((a.r - b.r).abs()).max((a.s - b.s).abs())
+}
+
+/// Parse valid terrain JSON string into HashSet
+/// Format: [{"q":0,"r":0},{"q":1,"r":0},...]
+/// Returns empty HashSet if parsing fails
+fn parse_valid_terrain_json(valid_terrain_json: &str) -> HashSet<(i32, i32)> {
+    let mut valid_terrain = HashSet::new();
+    
+    let trimmed = valid_terrain_json.trim();
+    if trimmed.is_empty() || trimmed == "[]" {
+        return valid_terrain;
+    }
+    
+    // Simple JSON parsing: find all {"q":X,"r":Y} patterns
+    let mut i = 0;
+    let chars: Vec<char> = trimmed.chars().collect();
+    while i < chars.len() {
+        // Look for opening brace
+        if chars[i] == '{' {
+            let mut q_value: Option<i32> = None;
+            let mut r_value: Option<i32> = None;
+            
+            i += 1;
+            while i < chars.len() && chars[i] != '}' {
+                // Look for "q" or "r" followed by colon and number
+                if i + 3 < chars.len() && chars[i] == '"' && chars[i + 1] == 'q' && chars[i + 2] == '"' {
+                    i += 3;
+                    // Skip colon and whitespace
+                    while i < chars.len() && (chars[i] == ':' || chars[i] == ' ' || chars[i] == '\t') {
+                        i += 1;
+                    }
+                    // Parse number
+                    if i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '-') {
+                        let start = i;
+                        i += 1;
+                        while i < chars.len() && chars[i].is_ascii_digit() {
+                            i += 1;
+                        }
+                        let num_str: String = chars[start..i].iter().collect();
+                        if let Ok(num) = num_str.parse::<i32>() {
+                            q_value = Some(num);
+                        }
+                    }
+                } else if i + 3 < chars.len() && chars[i] == '"' && chars[i + 1] == 'r' && chars[i + 2] == '"' {
+                    i += 3;
+                    // Skip colon and whitespace
+                    while i < chars.len() && (chars[i] == ':' || chars[i] == ' ' || chars[i] == '\t') {
+                        i += 1;
+                    }
+                    // Parse number
+                    if i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '-') {
+                        let start = i;
+                        i += 1;
+                        while i < chars.len() && chars[i].is_ascii_digit() {
+                            i += 1;
+                        }
+                        let num_str: String = chars[start..i].iter().collect();
+                        if let Ok(num) = num_str.parse::<i32>() {
+                            r_value = Some(num);
+                        }
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            
+            if let (Some(q), Some(r)) = (q_value, r_value) {
+                valid_terrain.insert((q, r));
+            }
+        }
+        i += 1;
+    }
+    
+    valid_terrain
 }
 
 /// Hex A* pathfinding between two road tiles
@@ -175,7 +258,7 @@ fn hex_astar_path(
     let mut closed_set = HashSet::new();
     let mut g_scores: HashMap<(i32, i32), i32> = HashMap::new();
 
-    open_set.push(AStarNode::new(start_q, start_r, 0, h_start));
+    open_set.push(AStarNode::new(start_q, start_r, 0, h_start, start_q, start_r));
     g_scores.insert((start_q, start_r), 0);
 
     while let Some(current) = open_set.pop() {
@@ -217,13 +300,257 @@ fn hex_astar_path(
                 // This path to neighbor is better - record it
                 g_scores.insert(neighbor_key, tentative_g);
                 let h = hex_distance(nq, nr, goal_q, goal_r);
-                open_set.push(AStarNode::new(nq, nr, tentative_g, h));
+                open_set.push(AStarNode::new(nq, nr, tentative_g, h, current.q, current.r));
             }
         }
     }
 
     // No path found
     -1
+}
+
+/// Hex A* pathfinding that returns full path
+/// Matches TypeScript hexAStar algorithm exactly:
+/// - Uses cube coordinates for distance calculation (cube_distance)
+/// - Maintains open set as BinaryHeap (min-heap by f score, then h score)
+/// - Maintains closed set as HashSet
+/// - Maintains g_scores as HashMap
+/// - Stores parent pointers for path reconstruction
+/// 
+/// @param start_q - Start q coordinate (axial)
+/// @param start_r - Start r coordinate (axial)
+/// @param goal_q - Goal q coordinate (axial)
+/// @param goal_r - Goal r coordinate (axial)
+/// @param valid_terrain_json - JSON string with array of valid terrain coordinates: [{"q":0,"r":0},...]
+/// @returns JSON string with path array [{"q":0,"r":0},...] or "null" if no path found
+#[wasm_bindgen]
+pub fn hex_astar(
+    start_q: i32,
+    start_r: i32,
+    goal_q: i32,
+    goal_r: i32,
+    valid_terrain_json: String,
+) -> String {
+    // Parse valid terrain from JSON
+    let valid_terrain = parse_valid_terrain_json(&valid_terrain_json);
+    
+    // Check if start and goal are in valid terrain
+    if !valid_terrain.contains(&(start_q, start_r)) || !valid_terrain.contains(&(goal_q, goal_r)) {
+        return "null".to_string();
+    }
+    
+    // If start equals goal, return path with single node
+    if start_q == goal_q && start_r == goal_r {
+        return format!(r#"[{{"q":{},"r":{}}}]"#, start_q, start_r);
+    }
+    
+    // Convert goal to cube for distance calculation (matches TypeScript)
+    let goal_cube = axial_to_cube(goal_q, goal_r);
+    
+    // Calculate heuristic function (cube distance)
+    let heuristic = |q: i32, r: i32| -> i32 {
+        let cube = axial_to_cube(q, r);
+        cube_distance(cube, goal_cube)
+    };
+    
+    // Initialize A* data structures
+    let h_start = heuristic(start_q, start_r);
+    let mut open_set = BinaryHeap::new();
+    let mut closed_set = HashSet::new();
+    let mut g_scores: HashMap<(i32, i32), i32> = HashMap::new();
+    let mut parents: HashMap<(i32, i32), (i32, i32)> = HashMap::new();
+    
+    // Start node (parent is itself to mark as root)
+    open_set.push(AStarNode::new(start_q, start_r, 0, h_start, start_q, start_r));
+    g_scores.insert((start_q, start_r), 0);
+    
+    while let Some(current) = open_set.pop() {
+        let current_key = (current.q, current.r);
+        
+        // Skip if already processed (duplicate in open_set)
+        if closed_set.contains(&current_key) {
+            continue;
+        }
+        
+        closed_set.insert(current_key);
+        
+        // Check if we reached the goal
+        if current.q == goal_q && current.r == goal_r {
+            // Reconstruct path by following parent pointers
+            let mut path: Vec<(i32, i32)> = Vec::new();
+            let mut node_key = (goal_q, goal_r);
+            
+            // Follow parent pointers from goal to start
+            loop {
+                path.push(node_key);
+                
+                // Get parent for this node
+                if let Some(parent_key) = parents.get(&node_key) {
+                    // If parent is the start, add it and break
+                    if parent_key.0 == start_q && parent_key.1 == start_r {
+                        path.push((start_q, start_r));
+                        break;
+                    }
+                    node_key = *parent_key;
+                } else {
+                    // No parent in map means we're at start (shouldn't happen in normal flow)
+                    // But handle it just in case
+                    if node_key.0 != start_q || node_key.1 != start_r {
+                        path.push((start_q, start_r));
+                    }
+                    break;
+                }
+            }
+            
+            // Reverse path to get start-to-goal order
+            path.reverse();
+            
+            // Build JSON string
+            let mut json_parts = Vec::new();
+            for (q, r) in path {
+                json_parts.push(format!(r#"{{"q":{},"r":{}}}"#, q, r));
+            }
+            
+            return format!("[{}]", json_parts.join(","));
+        }
+        
+        // Explore neighbors
+        let neighbors = get_hex_neighbors(current.q, current.r);
+        for (nq, nr) in neighbors {
+            let neighbor_key = (nq, nr);
+            
+            // Skip if not in valid terrain
+            if !valid_terrain.contains(&neighbor_key) {
+                continue;
+            }
+            
+            // Skip if already closed
+            if closed_set.contains(&neighbor_key) {
+                continue;
+            }
+            
+            // Calculate tentative g score (uniform cost of 1 per step)
+            let tentative_g = current.g + 1;
+            
+            // Check if this is a better path
+            let current_g = g_scores.get(&neighbor_key).copied().unwrap_or(i32::MAX);
+            if tentative_g < current_g {
+                // This path to neighbor is better - record it
+                g_scores.insert(neighbor_key, tentative_g);
+                parents.insert(neighbor_key, (current.q, current.r));
+                let h = heuristic(nq, nr);
+                open_set.push(AStarNode::new(nq, nr, tentative_g, h, current.q, current.r));
+            }
+        }
+    }
+    
+    // No path found
+    "null".to_string()
+}
+
+/// Build a path between two road points using A* pathfinding
+/// Returns array of intermediate hexes (excluding start, including end)
+/// Matches TypeScript buildPathBetweenRoads function
+/// 
+/// @param start_q - Start q coordinate (axial)
+/// @param start_r - Start r coordinate (axial)
+/// @param end_q - End q coordinate (axial)
+/// @param end_r - End r coordinate (axial)
+/// @param valid_terrain_json - JSON string with array of valid terrain coordinates: [{"q":0,"r":0},...]
+/// @returns JSON string with path array excluding start, including end, or "null" if no path found
+#[wasm_bindgen]
+pub fn build_path_between_roads(
+    start_q: i32,
+    start_r: i32,
+    end_q: i32,
+    end_r: i32,
+    valid_terrain_json: String,
+) -> String {
+    // Call hex_astar to get full path
+    let full_path_json = hex_astar(start_q, start_r, end_q, end_r, valid_terrain_json);
+    
+    // If no path, return null
+    if full_path_json == "null" || full_path_json.is_empty() {
+        return "null".to_string();
+    }
+    
+    // Parse the path JSON
+    // Simple parsing: extract all {"q":X,"r":Y} patterns and skip first one
+    let trimmed = full_path_json.trim();
+    if trimmed == "[]" || trimmed.len() < 3 {
+        return "null".to_string();
+    }
+    
+    // Find all coordinate pairs
+    let mut coords: Vec<(i32, i32)> = Vec::new();
+    let mut i = 0;
+    let chars: Vec<char> = trimmed.chars().collect();
+    while i < chars.len() {
+        if chars[i] == '{' {
+            let mut q_value: Option<i32> = None;
+            let mut r_value: Option<i32> = None;
+            
+            i += 1;
+            while i < chars.len() && chars[i] != '}' {
+                if i + 3 < chars.len() && chars[i] == '"' && chars[i + 1] == 'q' && chars[i + 2] == '"' {
+                    i += 3;
+                    while i < chars.len() && (chars[i] == ':' || chars[i] == ' ' || chars[i] == '\t') {
+                        i += 1;
+                    }
+                    if i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '-') {
+                        let start = i;
+                        i += 1;
+                        while i < chars.len() && chars[i].is_ascii_digit() {
+                            i += 1;
+                        }
+                        let num_str: String = chars[start..i].iter().collect();
+                        if let Ok(num) = num_str.parse::<i32>() {
+                            q_value = Some(num);
+                        }
+                    }
+                } else if i + 3 < chars.len() && chars[i] == '"' && chars[i + 1] == 'r' && chars[i + 2] == '"' {
+                    i += 3;
+                    while i < chars.len() && (chars[i] == ':' || chars[i] == ' ' || chars[i] == '\t') {
+                        i += 1;
+                    }
+                    if i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '-') {
+                        let start = i;
+                        i += 1;
+                        while i < chars.len() && chars[i].is_ascii_digit() {
+                            i += 1;
+                        }
+                        let num_str: String = chars[start..i].iter().collect();
+                        if let Ok(num) = num_str.parse::<i32>() {
+                            r_value = Some(num);
+                        }
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            
+            if let (Some(q), Some(r)) = (q_value, r_value) {
+                coords.push((q, r));
+            }
+        }
+        i += 1;
+    }
+    
+    // If path has less than 2 nodes, return null
+    if coords.len() < 2 {
+        return "null".to_string();
+    }
+    
+    // Return path excluding start (first element), including end (last element)
+    let path_without_start = &coords[1..];
+    
+    // Build JSON string
+    let mut json_parts = Vec::new();
+    for (q, r) in path_without_start {
+        json_parts.push(format!(r#"{{"q":{},"r":{}}}"#, q, r));
+    }
+    
+    format!("[{}]", json_parts.join(","))
 }
 
 /// Validate that all road tiles are reachable from each other using A* pathfinding
@@ -654,6 +981,253 @@ pub fn get_stats() -> String {
         r#"{{"grass":{},"building":{},"road":{},"forest":{},"water":{},"total":{}}}"#,
         grass, building, road, forest, water, total
     )
+}
+
+/// Find nearest point in connected set to a given point
+/// Returns the nearest point and its distance
+fn find_nearest_in_set(
+    point: (i32, i32),
+    connected_set: &HashSet<(i32, i32)>,
+) -> Option<((i32, i32), i32)> {
+    if connected_set.is_empty() {
+        return None;
+    }
+    
+    let mut nearest: Option<(i32, i32)> = None;
+    let mut min_distance = i32::MAX;
+    
+    for &connected_point in connected_set {
+        let dist = hex_distance(point.0, point.1, connected_point.0, connected_point.1);
+        if dist < min_distance {
+            min_distance = dist;
+            nearest = Some(connected_point);
+        }
+    }
+    
+    nearest.map(|n| (n, min_distance))
+}
+
+/// Parse path JSON and return vector of coordinates
+/// Format: [{"q":0,"r":0},{"q":1,"r":0},...]
+fn parse_path_json(path_json: &str) -> Vec<(i32, i32)> {
+    let mut path = Vec::new();
+    
+    if path_json == "null" || path_json.is_empty() {
+        return path;
+    }
+    
+    let trimmed = path_json.trim();
+    if trimmed == "[]" || trimmed.len() < 3 {
+        return path;
+    }
+    
+    // Simple JSON parsing: find all {"q":X,"r":Y} patterns
+    let mut i = 0;
+    let chars: Vec<char> = trimmed.chars().collect();
+    while i < chars.len() {
+        if chars[i] == '{' {
+            let mut q_value: Option<i32> = None;
+            let mut r_value: Option<i32> = None;
+            
+            i += 1;
+            while i < chars.len() && chars[i] != '}' {
+                if i + 3 < chars.len() && chars[i] == '"' && chars[i + 1] == 'q' && chars[i + 2] == '"' {
+                    i += 3;
+                    while i < chars.len() && (chars[i] == ':' || chars[i] == ' ' || chars[i] == '\t') {
+                        i += 1;
+                    }
+                    if i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '-') {
+                        let start = i;
+                        i += 1;
+                        while i < chars.len() && chars[i].is_ascii_digit() {
+                            i += 1;
+                        }
+                        let num_str: String = chars[start..i].iter().collect();
+                        if let Ok(num) = num_str.parse::<i32>() {
+                            q_value = Some(num);
+                        }
+                    }
+                } else if i + 3 < chars.len() && chars[i] == '"' && chars[i + 1] == 'r' && chars[i + 2] == '"' {
+                    i += 3;
+                    while i < chars.len() && (chars[i] == ':' || chars[i] == ' ' || chars[i] == '\t') {
+                        i += 1;
+                    }
+                    if i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '-') {
+                        let start = i;
+                        i += 1;
+                        while i < chars.len() && chars[i].is_ascii_digit() {
+                            i += 1;
+                        }
+                        let num_str: String = chars[start..i].iter().collect();
+                        if let Ok(num) = num_str.parse::<i32>() {
+                            r_value = Some(num);
+                        }
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            
+            if let (Some(q), Some(r)) = (q_value, r_value) {
+                path.push((q, r));
+            }
+        }
+        i += 1;
+    }
+    
+    path
+}
+
+/// Generate road network using true growing tree algorithm
+/// 
+/// Algorithm:
+/// 1. Start with first seed point
+/// 2. For each remaining seed: find nearest connected road, build A* path, add path
+/// 3. For expansion: repeatedly find nearest unconnected valid terrain to any connected road,
+///    build A* path, add path. Continue until target count reached.
+/// 
+/// This creates a true tree structure where every road is connected via a path,
+/// not just adjacent (which would be flood fill).
+/// 
+/// @param seeds_json - JSON array of seed points: [{"q":0,"r":0},...]
+/// @param valid_terrain_json - JSON array of valid terrain: [{"q":0,"r":0},...]
+/// @param occupied_json - JSON array of occupied hexes: [{"q":0,"r":0},...]
+/// @param target_count - Target number of roads to generate
+/// @returns JSON array of road coordinates: [{"q":0,"r":0},...]
+#[wasm_bindgen]
+pub fn generate_road_network_growing_tree(
+    seeds_json: String,
+    valid_terrain_json: String,
+    occupied_json: String,
+    target_count: i32,
+) -> String {
+    // Parse inputs
+    let seeds = parse_valid_terrain_json(&seeds_json);
+    let valid_terrain = parse_valid_terrain_json(&valid_terrain_json);
+    let occupied = parse_valid_terrain_json(&occupied_json);
+    
+    // Build valid terrain set (valid terrain minus occupied)
+    let mut valid_terrain_set = HashSet::new();
+    for &hex in &valid_terrain {
+        if !occupied.contains(&hex) {
+            valid_terrain_set.insert(hex);
+        }
+    }
+    
+    // Convert valid terrain to JSON for hex_astar calls
+    let mut valid_terrain_vec: Vec<(i32, i32)> = valid_terrain_set.iter().cloned().collect();
+    valid_terrain_vec.sort();
+    let mut valid_terrain_json_parts = Vec::new();
+    for (q, r) in &valid_terrain_vec {
+        valid_terrain_json_parts.push(format!(r#"{{"q":{},"r":{}}}"#, q, r));
+    }
+    let valid_terrain_json_for_astar = format!("[{}]", valid_terrain_json_parts.join(","));
+    
+    // Connected set: roads in the network
+    let mut connected: HashSet<(i32, i32)> = HashSet::new();
+    
+    // Unconnected set: valid terrain not yet roads
+    let mut unconnected: HashSet<(i32, i32)> = valid_terrain_set.clone();
+    
+    // Phase 1: Connect seed points
+    if !seeds.is_empty() {
+        let first_seed = seeds.iter().next().copied();
+        if let Some(seed) = first_seed {
+            if valid_terrain_set.contains(&seed) {
+                connected.insert(seed);
+                unconnected.remove(&seed);
+            }
+        }
+        
+        // Connect remaining seeds
+        for seed in seeds.iter().skip(1) {
+            if !valid_terrain_set.contains(seed) {
+                continue;
+            }
+            
+            if connected.is_empty() {
+                // No connected roads yet, add seed directly
+                connected.insert(*seed);
+                unconnected.remove(seed);
+                continue;
+            }
+            
+            // Find nearest connected road
+            if let Some((nearest_road, _)) = find_nearest_in_set(*seed, &connected) {
+                // Build path from nearest road to seed
+                let path_json = hex_astar(
+                    nearest_road.0,
+                    nearest_road.1,
+                    seed.0,
+                    seed.1,
+                    valid_terrain_json_for_astar.clone(),
+                );
+                
+                if path_json != "null" && !path_json.is_empty() {
+                    let path = parse_path_json(&path_json);
+                    // Add all path hexes to connected
+                    for path_hex in path {
+                        connected.insert(path_hex);
+                        unconnected.remove(&path_hex);
+                    }
+                }
+            }
+        }
+    }
+    
+    // Phase 2: Expand to target density using growing tree
+    while (connected.len() as i32) < target_count && !unconnected.is_empty() {
+        let mut best_unconnected: Option<(i32, i32)> = None;
+        let mut best_connected: Option<(i32, i32)> = None;
+        let mut min_distance = i32::MAX;
+        
+        // Find nearest unconnected point to any connected road
+        for &unconnected_point in &unconnected {
+            if let Some((nearest_road, distance)) = find_nearest_in_set(unconnected_point, &connected) {
+                if distance < min_distance {
+                    min_distance = distance;
+                    best_unconnected = Some(unconnected_point);
+                    best_connected = Some(nearest_road);
+                }
+            }
+        }
+        
+        // Build path and add to network
+        if let (Some(unconnected_point), Some(connected_road)) = (best_unconnected, best_connected) {
+            let path_json = hex_astar(
+                connected_road.0,
+                connected_road.1,
+                unconnected_point.0,
+                unconnected_point.1,
+                valid_terrain_json_for_astar.clone(),
+            );
+            
+            if path_json != "null" && !path_json.is_empty() {
+                let path = parse_path_json(&path_json);
+                // Add all path hexes to connected
+                for path_hex in path {
+                    connected.insert(path_hex);
+                    unconnected.remove(&path_hex);
+                }
+            } else {
+                // Can't reach this point, remove it from unconnected
+                unconnected.remove(&unconnected_point);
+            }
+        } else {
+            // No more reachable points
+            break;
+        }
+    }
+    
+    // Convert connected set to JSON array
+    let mut road_vec: Vec<(i32, i32)> = connected.iter().cloned().collect();
+    road_vec.sort();
+    let mut json_parts = Vec::new();
+    for (q, r) in road_vec {
+        json_parts.push(format!(r#"{{"q":{},"r":{}}}"#, q, r));
+    }
+    
+    format!("[{}]", json_parts.join(","))
 }
 
 /// JavaScript random number generator

@@ -284,6 +284,26 @@ export interface WasmModuleBabylonWfc {
     grass_seeds: number
   ): string;
   validate_road_connectivity(roads_json: string): boolean;
+  hex_astar(
+    start_q: number,
+    start_r: number,
+    goal_q: number,
+    goal_r: number,
+    valid_terrain_json: string
+  ): string;
+  build_path_between_roads(
+    start_q: number,
+    start_r: number,
+    end_q: number,
+    end_r: number,
+    valid_terrain_json: string
+  ): string;
+  generate_road_network_growing_tree(
+    seeds_json: string,
+    valid_terrain_json: string,
+    occupied_json: string,
+    target_count: number
+  ): string;
 }
 
 /**

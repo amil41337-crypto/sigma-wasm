@@ -67,6 +67,15 @@ const getInitWasm = async (): Promise<unknown> => {
     if (!('validate_road_connectivity' in moduleUnknown) || typeof moduleUnknown.validate_road_connectivity !== 'function') {
       throw new Error(`Module missing 'validate_road_connectivity' export. Available: ${moduleKeys.join(', ')}`);
     }
+    if (!('hex_astar' in moduleUnknown) || typeof moduleUnknown.hex_astar !== 'function') {
+      throw new Error(`Module missing 'hex_astar' export. Available: ${moduleKeys.join(', ')}`);
+    }
+    if (!('build_path_between_roads' in moduleUnknown) || typeof moduleUnknown.build_path_between_roads !== 'function') {
+      throw new Error(`Module missing 'build_path_between_roads' export. Available: ${moduleKeys.join(', ')}`);
+    }
+    if (!('generate_road_network_growing_tree' in moduleUnknown) || typeof moduleUnknown.generate_road_network_growing_tree !== 'function') {
+      throw new Error(`Module missing 'generate_road_network_growing_tree' export. Available: ${moduleKeys.join(', ')}`);
+    }
     
     // Store module as Record after validation
     // TypeScript can't narrow dynamic import types, so we use Record pattern
@@ -210,6 +219,15 @@ function validateBabylonWfcModule(exports: unknown): WasmModuleBabylonWfc | null
     if (typeof wasmModuleRecord.validate_road_connectivity !== 'function') {
       missingExports.push('validate_road_connectivity (function)');
     }
+    if (typeof wasmModuleRecord.hex_astar !== 'function') {
+      missingExports.push('hex_astar (function)');
+    }
+    if (typeof wasmModuleRecord.build_path_between_roads !== 'function') {
+      missingExports.push('build_path_between_roads (function)');
+    }
+    if (typeof wasmModuleRecord.generate_road_network_growing_tree !== 'function') {
+      missingExports.push('generate_road_network_growing_tree (function)');
+    }
   }
   
   if (missingExports.length > 0) {
@@ -233,6 +251,9 @@ function validateBabylonWfcModule(exports: unknown): WasmModuleBabylonWfc | null
   const getStatsFunc = wasmModuleRecord.get_stats;
   const generateVoronoiRegionsFunc = wasmModuleRecord.generate_voronoi_regions;
   const validateRoadConnectivityFunc = wasmModuleRecord.validate_road_connectivity;
+  const hexAstarFunc = wasmModuleRecord.hex_astar;
+  const buildPathBetweenRoadsFunc = wasmModuleRecord.build_path_between_roads;
+  const generateRoadNetworkGrowingTreeFunc = wasmModuleRecord.generate_road_network_growing_tree;
   
   if (
     typeof generateLayoutFunc !== 'function' ||
@@ -242,7 +263,10 @@ function validateBabylonWfcModule(exports: unknown): WasmModuleBabylonWfc | null
     typeof clearPreConstraintsFunc !== 'function' ||
     typeof getStatsFunc !== 'function' ||
     typeof generateVoronoiRegionsFunc !== 'function' ||
-    typeof validateRoadConnectivityFunc !== 'function'
+    typeof validateRoadConnectivityFunc !== 'function' ||
+    typeof hexAstarFunc !== 'function' ||
+    typeof buildPathBetweenRoadsFunc !== 'function' ||
+    typeof generateRoadNetworkGrowingTreeFunc !== 'function'
   ) {
     return null;
   }
@@ -294,6 +318,38 @@ function validateBabylonWfcModule(exports: unknown): WasmModuleBabylonWfc | null
       // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment
       const result = validateRoadConnectivityFunc(roads_json);
       return typeof result === 'boolean' ? result : false;
+    },
+    hex_astar: (
+      start_q: number,
+      start_r: number,
+      goal_q: number,
+      goal_r: number,
+      valid_terrain_json: string
+    ): string => {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment
+      const result = hexAstarFunc(start_q, start_r, goal_q, goal_r, valid_terrain_json);
+      return typeof result === 'string' ? result : 'null';
+    },
+    build_path_between_roads: (
+      start_q: number,
+      start_r: number,
+      end_q: number,
+      end_r: number,
+      valid_terrain_json: string
+    ): string => {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment
+      const result = buildPathBetweenRoadsFunc(start_q, start_r, end_q, end_r, valid_terrain_json);
+      return typeof result === 'string' ? result : 'null';
+    },
+    generate_road_network_growing_tree: (
+      seeds_json: string,
+      valid_terrain_json: string,
+      occupied_json: string,
+      target_count: number
+    ): string => {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment
+      const result = generateRoadNetworkGrowingTreeFunc(seeds_json, valid_terrain_json, occupied_json, target_count);
+      return typeof result === 'string' ? result : '[]';
     },
   };
 }
@@ -1823,381 +1879,102 @@ function tileTypeToNumber(tileType: TileType): number {
 }
 
 /**
- * Building footprint shape type
+ * Parse HexCoord array from JSON string
+ * Uses Object.getOwnPropertyDescriptor for type-safe property access without casts
+ * 
+ * @param jsonString - JSON string containing array of HexCoord objects
+ * @returns Array of HexCoord or null if parsing fails
  */
-type FootprintShape = 'rectangular' | 'square' | 'l-shaped' | 'u-shaped';
-
-
-/**
- * Check if a position conflicts with existing constraints
- * Note: Buildings are allowed to override grass cells, so we don't check grass conflicts
- * Also checks if position is within hexagonal map boundary
- */
-function hasConflict(
-  x: number,
-  y: number,
-  _grassCells: Array<{ x: number; y: number }>,
-  existingFootprints: Array<Array<{ x: number; y: number }>>,
-  width: number,
-  height: number,
-  maxLayer: number
-): boolean {
-  if (x < 0 || y < 0 || x >= width || y >= height) {
-    return true;
-  }
-
-  // Check if position is within hexagon pattern (layer-based)
-  const axial = HEX_UTILS.offsetToAxial(x, y);
-  const centerOffset = HEX_UTILS.offsetToAxial(Math.floor(width / 2), Math.floor(height / 2));
-  if (!HEX_UTILS.isInHexagonPattern(maxLayer, axial.q, axial.r, centerOffset.q, centerOffset.r)) {
-    return true;
-  }
-
-  // Don't check grass conflicts - buildings can override grass cells
-  // Floor tiles will override grass when set as pre-constraints
-
-  for (const footprint of existingFootprints) {
-    if (footprint.some((cell) => cell.x === x && cell.y === y)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-/**
- * Calculate actual boundary length of a rectangular footprint
- */
-function calculateRectangularBoundary(
-  footprint: Array<{ x: number; y: number }>
-): { minX: number; maxX: number; minY: number; maxY: number } | null {
-  if (footprint.length === 0) {
+function parseHexCoordArray(jsonString: string): Array<HexCoord> | null {
+  if (jsonString === 'null' || jsonString === null || jsonString === '[]') {
     return null;
   }
-
-  let minX = footprint[0].x;
-  let maxX = footprint[0].x;
-  let minY = footprint[0].y;
-  let maxY = footprint[0].y;
-
-  for (const cell of footprint) {
-    if (cell.x < minX) {
-      minX = cell.x;
-    }
-    if (cell.x > maxX) {
-      maxX = cell.x;
-    }
-    if (cell.y < minY) {
-      minY = cell.y;
-    }
-    if (cell.y > maxY) {
-      maxY = cell.y;
-    }
+  
+  const parsed: unknown = JSON.parse(jsonString);
+  if (!Array.isArray(parsed)) {
+    return null;
   }
-
-  return { minX, maxX, minY, maxY };
-}
-
-/**
- * Validate that a footprint has minimum boundary length of 3 tiles
- */
-function validateFootprintBoundaries(
-  footprint: Array<{ x: number; y: number }>,
-  minSize: number
-): boolean {
-  const bounds = calculateRectangularBoundary(footprint);
-  if (!bounds) {
-    return false;
-  }
-
-  const width = bounds.maxX - bounds.minX + 1;
-  const height = bounds.maxY - bounds.minY + 1;
-
-  return width >= minSize && height >= minSize;
-}
-
-/**
- * Generate a rectangular or square footprint
- */
-function generateRectangularFootprint(
-  seedX: number,
-  seedY: number,
-  minSize: number,
-  maxSize: number,
-  width: number,
-  height: number,
-  grassCells: Array<{ x: number; y: number }>,
-  existingFootprints: Array<Array<{ x: number; y: number }>>,
-  maxLayer: number
-): Array<{ x: number; y: number }> | null {
-  const maxAttempts = 20;
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const w = Math.floor(Math.random() * (maxSize - minSize + 1)) + minSize;
-    const h = Math.floor(Math.random() * (maxSize - minSize + 1)) + minSize;
-
-    if (w < minSize || h < minSize) {
+  
+  const result: Array<HexCoord> = [];
+  for (const item of parsed) {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) {
       continue;
     }
-
-    const startX = seedX - Math.floor(w / 2);
-    const startY = seedY - Math.floor(h / 2);
-
-    const footprint: Array<{ x: number; y: number }> = [];
-
-    for (let dy = 0; dy < h; dy++) {
-      for (let dx = 0; dx < w; dx++) {
-        const x = startX + dx;
-        const y = startY + dy;
-
-        if (x < 0 || x >= width || y < 0 || y >= height) {
-          break;
-        }
-
-        if (hasConflict(x, y, grassCells, existingFootprints, width, height, maxLayer)) {
-          break;
-        }
-
-        footprint.push({ x, y });
-      }
-    }
-
-    if (footprint.length === w * h && validateFootprintBoundaries(footprint, minSize)) {
-      return footprint;
-    }
-  }
-
-  return null;
-}
-
-/**
- * Generate an L-shaped footprint
- */
-function generateLShapedFootprint(
-  seedX: number,
-  seedY: number,
-  minSize: number,
-  maxSize: number,
-  width: number,
-  height: number,
-  grassCells: Array<{ x: number; y: number }>,
-  existingFootprints: Array<Array<{ x: number; y: number }>>,
-  maxLayer: number
-): Array<{ x: number; y: number }> | null {
-  const maxAttempts = 20;
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const horizontalW = Math.floor(Math.random() * (maxSize - minSize + 1)) + minSize;
-    const horizontalH = Math.floor(Math.random() * (maxSize - minSize + 1)) + minSize;
-    const verticalW = Math.floor(Math.random() * (maxSize - minSize + 1)) + minSize;
-    const verticalH = Math.floor(Math.random() * (maxSize - minSize + 1)) + minSize;
-
-    if (horizontalW < minSize || horizontalH < minSize || verticalW < minSize || verticalH < minSize) {
+    
+    // Check for required properties using 'in' operator
+    if (!('q' in item) || !('r' in item)) {
       continue;
     }
-
-    const horizontalStartX = seedX - Math.floor(horizontalW / 2);
-    const horizontalStartY = seedY - Math.floor(horizontalH / 2);
-    const verticalStartX = seedX - Math.floor(verticalW / 2);
-    const verticalStartY = seedY + Math.floor(horizontalH / 2);
-
-    const footprint: Array<{ x: number; y: number }> = [];
-    let valid = true;
-
-    for (let dy = 0; dy < horizontalH && valid; dy++) {
-      for (let dx = 0; dx < horizontalW && valid; dx++) {
-        const x = horizontalStartX + dx;
-        const y = horizontalStartY + dy;
-
-        if (x < 0 || x >= width || y < 0 || y >= height) {
-          valid = false;
-          break;
-        }
-
-        if (hasConflict(x, y, grassCells, existingFootprints, width, height, maxLayer)) {
-          valid = false;
-          break;
-        }
-
-        footprint.push({ x, y });
-      }
-    }
-
-    if (!valid) {
+    
+    // Use Object.getOwnPropertyDescriptor to access properties without type casts
+    const qDesc = Object.getOwnPropertyDescriptor(item, 'q');
+    const rDesc = Object.getOwnPropertyDescriptor(item, 'r');
+    
+    // Narrow the value types
+    if (!qDesc || !rDesc || !('value' in qDesc) || !('value' in rDesc)) {
       continue;
     }
-
-    for (let dy = 0; dy < verticalH && valid; dy++) {
-      for (let dx = 0; dx < verticalW && valid; dx++) {
-        const x = verticalStartX + dx;
-        const y = verticalStartY + dy;
-
-        if (x < 0 || x >= width || y < 0 || y >= height) {
-          valid = false;
-          break;
-        }
-
-        if (hasConflict(x, y, grassCells, existingFootprints, width, height, maxLayer)) {
-          valid = false;
-          break;
-        }
-
-        if (!footprint.some((cell) => cell.x === x && cell.y === y)) {
-          footprint.push({ x, y });
-        }
-      }
-    }
-
-    if (valid && validateFootprintBoundaries(footprint, minSize)) {
-      return footprint;
+    
+    const qValue: unknown = qDesc.value;
+    const rValue: unknown = rDesc.value;
+    
+    if (typeof qValue === 'number' && typeof rValue === 'number') {
+      result.push({ q: qValue, r: rValue });
     }
   }
-
-  return null;
-}
-
-/**
- * Generate a U-shaped footprint
- */
-function generateUShapedFootprint(
-  seedX: number,
-  seedY: number,
-  minSize: number,
-  maxSize: number,
-  width: number,
-  height: number,
-  grassCells: Array<{ x: number; y: number }>,
-  existingFootprints: Array<Array<{ x: number; y: number }>>,
-  maxLayer: number
-): Array<{ x: number; y: number }> | null {
-  const maxAttempts = 20;
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const baseW = Math.floor(Math.random() * (maxSize - minSize + 1)) + minSize;
-    const baseH = Math.floor(Math.random() * (maxSize - minSize + 1)) + minSize;
-    const sideW = Math.floor(Math.random() * (maxSize - minSize + 1)) + minSize;
-    const sideH = Math.floor(Math.random() * (maxSize - minSize + 1)) + minSize;
-
-    if (baseW < minSize || baseH < minSize || sideW < minSize || sideH < minSize) {
-      continue;
-    }
-
-    const baseStartX = seedX - Math.floor(baseW / 2);
-    const baseStartY = seedY - Math.floor(baseH / 2);
-    const leftSideStartX = baseStartX - Math.floor(sideW / 2);
-    const leftSideStartY = baseStartY;
-    const rightSideStartX = baseStartX + baseW - Math.floor(sideW / 2);
-    const rightSideStartY = baseStartY;
-
-    const footprint: Array<{ x: number; y: number }> = [];
-    let valid = true;
-
-    for (let dy = 0; dy < baseH && valid; dy++) {
-      for (let dx = 0; dx < baseW && valid; dx++) {
-        const x = baseStartX + dx;
-        const y = baseStartY + dy;
-
-        if (x < 0 || x >= width || y < 0 || y >= height) {
-          valid = false;
-          break;
-        }
-
-        if (hasConflict(x, y, grassCells, existingFootprints, width, height, maxLayer)) {
-          valid = false;
-          break;
-        }
-
-        footprint.push({ x, y });
-      }
-    }
-
-    if (!valid) {
-      continue;
-    }
-
-    for (let dy = 0; dy < sideH && valid; dy++) {
-      for (let dx = 0; dx < sideW && valid; dx++) {
-        const leftX = leftSideStartX + dx;
-        const leftY = leftSideStartY + dy;
-        const rightX = rightSideStartX + dx;
-        const rightY = rightSideStartY + dy;
-
-        if (leftX >= 0 && leftX < width && leftY >= 0 && leftY < height) {
-          if (!hasConflict(leftX, leftY, grassCells, existingFootprints, width, height, maxLayer)) {
-            if (!footprint.some((cell) => cell.x === leftX && cell.y === leftY)) {
-              footprint.push({ x: leftX, y: leftY });
-            }
-          } else {
-            valid = false;
-            break;
-          }
-        } else {
-          valid = false;
-          break;
-        }
-
-        if (rightX >= 0 && rightX < width && rightY >= 0 && rightY < height) {
-          if (!hasConflict(rightX, rightY, grassCells, existingFootprints, width, height, maxLayer)) {
-            if (!footprint.some((cell) => cell.x === rightX && cell.y === rightY)) {
-              footprint.push({ x: rightX, y: rightY });
-            }
-          } else {
-            valid = false;
-            break;
-          }
-        } else {
-          valid = false;
-          break;
-        }
-      }
-    }
-
-    if (valid && validateFootprintBoundaries(footprint, minSize)) {
-      return footprint;
-    }
-  }
-
-  return null;
-}
-
-/**
- * Generate a building footprint of the specified shape
- * @deprecated Not currently used - kept for potential future adjacency constraints
- */
-export function generateBuildingFootprint(
-  seedX: number,
-  seedY: number,
-  shape: FootprintShape,
-  minSize: number,
-  maxSize: number,
-  width: number,
-  height: number,
-  grassCells: Array<{ x: number; y: number }>,
-  existingFootprints: Array<Array<{ x: number; y: number }>>,
-  maxLayer: number
-): Array<{ x: number; y: number }> | null {
-  switch (shape) {
-    case 'rectangular':
-    case 'square':
-      return generateRectangularFootprint(seedX, seedY, minSize, maxSize, width, height, grassCells, existingFootprints, maxLayer);
-    case 'l-shaped':
-      return generateLShapedFootprint(seedX, seedY, minSize, maxSize, width, height, grassCells, existingFootprints, maxLayer);
-    case 'u-shaped':
-      return generateUShapedFootprint(seedX, seedY, minSize, maxSize, width, height, grassCells, existingFootprints, maxLayer);
-  }
+  
+  return result.length > 0 ? result : null;
 }
 
 /**
  * Hex A* pathfinding for road connectivity validation
  * 
+ * Uses WASM implementation when available for better performance.
+ * Falls back to TypeScript implementation if WASM is not available.
+ * 
  * Uses cube coordinates for distance calculations and explores 6 hex neighbors.
  * Returns path from start to goal, or null if unreachable.
  * 
- * Note: Currently not used in road connectivity validation (BFS is used instead),
- * but available for future pathfinding needs.
+ * @param start - Start hex coordinate
+ * @param goal - Goal hex coordinate
+ * @param isValid - Callback function to check if a hex is valid for pathfinding
+ * @param hexGrid - Optional hex grid to use for building valid terrain array (for WASM)
+ * @returns Path from start to goal, or null if unreachable
  */
 export function hexAStar(
   start: HexCoord,
   goal: HexCoord,
-  isValid: (q: number, r: number) => boolean
+  isValid: (q: number, r: number) => boolean,
+  hexGrid?: Array<HexCoord>
 ): Array<HexCoord> | null {
+  // Try WASM implementation if available
+  if (WASM_BABYLON_WFC.wasmModule && hexGrid) {
+    // Build valid terrain array from hexGrid and isValid callback
+    const validTerrain: Array<HexCoord> = [];
+    for (const hex of hexGrid) {
+      if (isValid(hex.q, hex.r)) {
+        validTerrain.push(hex);
+      }
+    }
+    
+    const validTerrainJson = JSON.stringify(validTerrain);
+    const result = WASM_BABYLON_WFC.wasmModule.hex_astar(
+      start.q,
+      start.r,
+      goal.q,
+      goal.r,
+      validTerrainJson
+    );
+    
+    if (result === 'null' || result === null) {
+      return null;
+    }
+    
+    // Parse and validate result using utility function
+    return parseHexCoordArray(result);
+  }
+  
+  // Fallback to TypeScript implementation
   interface AStarNode {
     q: number;
     r: number;
@@ -2298,53 +2075,6 @@ export function hexAStar(
   return null;
 }
 
-/**
- * Get all hex coordinates that have valid terrain (grass or forest) from Voronoi regions
- * Roads and buildings can only be placed on grass or forest tiles, not water
- */
-function getValidTerrainHexes(
-  hexGrid: Array<HexCoord>,
-  voronoiConstraints: Array<{ q: number; r: number; tileType: TileType }>
-): Array<HexCoord> {
-  const validHexes: Array<HexCoord> = [];
-  const voronoiMap = new Map<string, TileType>();
-  
-  for (const constraint of voronoiConstraints) {
-    voronoiMap.set(`${constraint.q},${constraint.r}`, constraint.tileType);
-  }
-  
-  for (const hex of hexGrid) {
-    const tileType = voronoiMap.get(`${hex.q},${hex.r}`);
-    if (tileType && (tileType.type === 'grass' || tileType.type === 'forest')) {
-      validHexes.push(hex);
-    }
-  }
-  
-  return validHexes;
-}
-
-/**
- * Check if a hex coordinate is adjacent to at least one road
- */
-function isAdjacentToRoad(
-  q: number,
-  r: number,
-  roadConstraints: Array<{ q: number; r: number; tileType: TileType }>
-): boolean {
-  const roadSet = new Set<string>();
-  for (const road of roadConstraints) {
-    roadSet.add(`${road.q},${road.r}`);
-  }
-  
-  const neighbors = HEX_UTILS.getNeighbors(q, r);
-  for (const neighbor of neighbors) {
-    if (roadSet.has(`${neighbor.q},${neighbor.r}`)) {
-      return true;
-    }
-  }
-  
-  return false;
-}
 
 /**
  * Find the nearest road in the network to a given seed point
@@ -2376,13 +2106,50 @@ function findNearestRoad(
  * Build a path between two road points using A* pathfinding
  * Returns array of intermediate hexes (excluding start, including end)
  * Returns null if no path found
+ * 
+ * Uses WASM implementation when available for better performance.
+ * 
+ * @param start - Start hex coordinate
+ * @param end - End hex coordinate
+ * @param isValid - Callback function to check if a hex is valid for pathfinding
+ * @param hexGrid - Optional hex grid to use for building valid terrain array (for WASM)
+ * @returns Path excluding start, including end, or null if no path found
  */
 function buildPathBetweenRoads(
   start: HexCoord,
   end: HexCoord,
-  isValid: (q: number, r: number) => boolean
+  isValid: (q: number, r: number) => boolean,
+  hexGrid?: Array<HexCoord>
 ): Array<HexCoord> | null {
-  const path = hexAStar(start, end, isValid);
+  // Try WASM implementation if available
+  if (WASM_BABYLON_WFC.wasmModule && hexGrid) {
+    // Build valid terrain array from hexGrid and isValid callback
+    const validTerrain: Array<HexCoord> = [];
+    for (const hex of hexGrid) {
+      if (isValid(hex.q, hex.r)) {
+        validTerrain.push(hex);
+      }
+    }
+    
+    const validTerrainJson = JSON.stringify(validTerrain);
+    const result = WASM_BABYLON_WFC.wasmModule.build_path_between_roads(
+      start.q,
+      start.r,
+      end.q,
+      end.r,
+      validTerrainJson
+    );
+    
+    if (result === 'null' || result === null) {
+      return null;
+    }
+    
+    // Parse and validate result using utility function
+    return parseHexCoordArray(result);
+  }
+  
+  // Fallback to TypeScript implementation
+  const path = hexAStar(start, end, isValid, hexGrid);
   if (!path || path.length === 0) {
     return null;
   }
@@ -2626,7 +2393,17 @@ function constraintsToPreConstraints(
   const roadConstraints: Array<{ q: number; r: number; tileType: TileType }> = [];
 
   // Get valid terrain hexes (grass/forest only, not water)
-  const validTerrainHexes = getValidTerrainHexes(hexGrid, voronoiConstraints);
+  const validTerrainHexes: Array<HexCoord> = [];
+  const voronoiMap = new Map<string, TileType>();
+  for (const constraint of voronoiConstraints) {
+    voronoiMap.set(`${constraint.q},${constraint.r}`, constraint.tileType);
+  }
+  for (const hex of hexGrid) {
+    const tileType = voronoiMap.get(`${hex.q},${hex.r}`);
+    if (tileType && (tileType.type === 'grass' || tileType.type === 'forest')) {
+      validTerrainHexes.push(hex);
+    }
+  }
 
   if (addLogEntry !== null) {
     addLogEntry(`Valid terrain for roads/buildings: ${validTerrainHexes.length} hexes (grass/forest only)`, 'info');
@@ -2678,87 +2455,152 @@ function constraintsToPreConstraints(
     addLogEntry(`Selected ${seedPoints.length} seed points for road network`, 'info');
   }
 
-  // Step 3b: Build connected network using growing tree algorithm
-  // Start with first seed point
-  const roadNetwork: Array<HexCoord> = [];
-  if (seedPoints.length > 0) {
-    const firstSeed = seedPoints[0];
-    if (firstSeed) {
-      roadNetwork.push(firstSeed);
-      occupiedHexes.add(`${firstSeed.q},${firstSeed.r}`);
-    }
-  }
-
-  // Connect remaining seed points to the network
-  for (let i = 1; i < seedPoints.length; i++) {
-    const seed = seedPoints[i];
-    if (!seed) {
-      continue;
-    }
-
-    // Find nearest road in current network
-    const nearestRoad = findNearestRoad(seed, roadNetwork);
-    if (!nearestRoad) {
-      // Shouldn't happen, but add seed directly if no network exists
-      roadNetwork.push(seed);
-      occupiedHexes.add(`${seed.q},${seed.r}`);
-      continue;
-    }
-
-    // Build path from nearest road to seed
-    const path = buildPathBetweenRoads(nearestRoad, seed, isValidForRoad);
-    if (path && path.length > 0) {
-      // Add all hexes along the path to the network
-      for (const pathHex of path) {
-        const pathKey = `${pathHex.q},${pathHex.r}`;
-        if (!occupiedHexes.has(pathKey)) {
-          roadNetwork.push(pathHex);
-          occupiedHexes.add(pathKey);
+  // Step 3b & 3c: Generate road network using true growing tree algorithm (WASM)
+  // This replaces the previous flood-fill approach with a proper tree algorithm:
+  // 1. Connects seed points using A* paths
+  // 2. Expands by finding nearest unconnected valid terrain to any connected road,
+  //    building A* path, and adding path. Continues until target count reached.
+  let roadNetwork: Array<HexCoord> = [];
+  
+  if (WASM_BABYLON_WFC.wasmModule) {
+    // Prepare inputs for WASM function
+    const seedsJson = JSON.stringify(seedPoints);
+    const validTerrainJson = JSON.stringify(validTerrainHexes);
+    const occupiedArray: Array<HexCoord> = [];
+    for (const key of occupiedHexes) {
+      const parts = key.split(',');
+      if (parts.length === 2) {
+        const q = Number.parseInt(parts[0] ?? '0', 10);
+        const r = Number.parseInt(parts[1] ?? '0', 10);
+        if (!Number.isNaN(q) && !Number.isNaN(r)) {
+          occupiedArray.push({ q, r });
         }
       }
+    }
+    const occupiedJson = JSON.stringify(occupiedArray);
+    
+    if (addLogEntry !== null) {
+      addLogEntry(`Generating road network using WASM growing tree algorithm...`, 'info');
+    }
+    
+    const result = WASM_BABYLON_WFC.wasmModule.generate_road_network_growing_tree(
+      seedsJson,
+      validTerrainJson,
+      occupiedJson,
+      targetRoadCount
+    );
+    
+    // Parse and validate result using utility function
+    const parsedRoads = parseHexCoordArray(result);
+    if (parsedRoads) {
+      roadNetwork = parsedRoads;
+      
+      // Update occupiedHexes with generated roads
+      for (const road of roadNetwork) {
+        occupiedHexes.add(`${road.q},${road.r}`);
+      }
+      
+      if (addLogEntry !== null) {
+        addLogEntry(`Generated ${roadNetwork.length} roads using WASM growing tree algorithm`, 'info');
+      }
     } else {
-      // If no path found, try to add seed directly (should be rare)
-      if (isValidForRoad(seed.q, seed.r)) {
+      if (addLogEntry !== null) {
+        addLogEntry(`WASM growing tree returned invalid result, falling back to TypeScript implementation`, 'warning');
+      }
+      // Fall through to TypeScript fallback
+      roadNetwork = [];
+    }
+  }
+  
+  // TypeScript fallback (should rarely be needed)
+  if (roadNetwork.length === 0) {
+    if (addLogEntry !== null) {
+      if (WASM_BABYLON_WFC.wasmModule) {
+        addLogEntry(`Using TypeScript fallback for road generation (WASM returned empty result)`, 'info');
+      } else {
+        addLogEntry(`Using TypeScript fallback for road generation (WASM not available)`, 'info');
+      }
+    }
+    
+    // Start with first seed point
+    if (seedPoints.length > 0) {
+      const firstSeed = seedPoints[0];
+      if (firstSeed) {
+        roadNetwork.push(firstSeed);
+        occupiedHexes.add(`${firstSeed.q},${firstSeed.r}`);
+      }
+    }
+
+    // Connect remaining seed points to the network
+    for (let i = 1; i < seedPoints.length; i++) {
+      const seed = seedPoints[i];
+      if (!seed) {
+        continue;
+      }
+
+      // Find nearest road in current network
+      const nearestRoad = findNearestRoad(seed, roadNetwork);
+      if (!nearestRoad) {
+        // Shouldn't happen, but add seed directly if no network exists
         roadNetwork.push(seed);
         occupiedHexes.add(`${seed.q},${seed.r}`);
+        continue;
       }
-    }
-  }
 
-  if (addLogEntry !== null) {
-    addLogEntry(`Built initial connected network: ${roadNetwork.length} roads`, 'info');
-  }
-
-  // Step 3c: Expand network to reach target density
-  // Add roads adjacent to existing network until we reach target count
-  while (roadNetwork.length < targetRoadCount) {
-    const adjacentHexes = getAdjacentValidTerrain(roadNetwork, validTerrainHexes, occupiedHexes);
-    
-    if (adjacentHexes.length === 0) {
-      // No more valid adjacent hexes, stop expanding
-      if (addLogEntry !== null) {
-        addLogEntry(`No more adjacent valid terrain, stopping road expansion at ${roadNetwork.length} roads`, 'info');
-      }
-      break;
-    }
-
-    // Shuffle adjacent hexes for random selection
-    for (let i = adjacentHexes.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      const temp = adjacentHexes[i];
-      if (temp && adjacentHexes[j]) {
-        adjacentHexes[i] = adjacentHexes[j];
-        adjacentHexes[j] = temp;
+      // Build path from nearest road to seed
+      const path = buildPathBetweenRoads(nearestRoad, seed, isValidForRoad, hexGrid);
+      if (path && path.length > 0) {
+        // Add all hexes along the path to the network
+        for (const pathHex of path) {
+          const pathKey = `${pathHex.q},${pathHex.r}`;
+          if (!occupiedHexes.has(pathKey)) {
+            roadNetwork.push(pathHex);
+            occupiedHexes.add(pathKey);
+          }
+        }
+        // Add the seed itself (end of path) if not already added
+        const seedKey = `${seed.q},${seed.r}`;
+        if (!occupiedHexes.has(seedKey)) {
+          roadNetwork.push(seed);
+          occupiedHexes.add(seedKey);
+        }
+      } else {
+        // If no path found, skip this seed to maintain connectivity
+        if (addLogEntry !== null) {
+          addLogEntry(`Skipping seed at (${seed.q}, ${seed.r}) - no path found to network`, 'warning');
+        }
       }
     }
 
-    // Add first available adjacent hex
-    const newRoad = adjacentHexes[0];
-    if (newRoad) {
-      roadNetwork.push(newRoad);
-      occupiedHexes.add(`${newRoad.q},${newRoad.r}`);
-    } else {
-      break;
+    // Expand network to reach target density (flood fill approach for fallback)
+    while (roadNetwork.length < targetRoadCount) {
+      const adjacentHexes = getAdjacentValidTerrain(roadNetwork, validTerrainHexes, occupiedHexes);
+      
+      if (adjacentHexes.length === 0) {
+        if (addLogEntry !== null) {
+          addLogEntry(`No more adjacent valid terrain, stopping road expansion at ${roadNetwork.length} roads`, 'info');
+        }
+        break;
+      }
+
+      // Shuffle adjacent hexes for random selection
+      for (let i = adjacentHexes.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const temp = adjacentHexes[i];
+        if (temp && adjacentHexes[j]) {
+          adjacentHexes[i] = adjacentHexes[j];
+          adjacentHexes[j] = temp;
+        }
+      }
+
+      // Add first available adjacent hex
+      const newRoad = adjacentHexes[0];
+      if (newRoad) {
+        roadNetwork.push(newRoad);
+        occupiedHexes.add(`${newRoad.q},${newRoad.r}`);
+      } else {
+        break;
+      }
     }
   }
 
@@ -2865,7 +2707,13 @@ function constraintsToPreConstraints(
     const hex = availableBuildingHexes[i];
     if (hex) {
       // Double-check adjacency (in case roads changed during retries)
-      if (isAdjacentToRoad(hex.q, hex.r, roadConstraints)) {
+      const roadSet = new Set<string>();
+      for (const road of roadConstraints) {
+        roadSet.add(`${road.q},${road.r}`);
+      }
+      const neighbors = HEX_UTILS.getNeighbors(hex.q, hex.r);
+      const isAdjacent = neighbors.some((neighbor) => roadSet.has(`${neighbor.q},${neighbor.r}`));
+      if (isAdjacent) {
         buildingConstraints.push({ q: hex.q, r: hex.r, tileType: { type: 'building' } });
         occupiedHexes.add(`${hex.q},${hex.r}`);
         placedBuildings += 1;
@@ -3518,68 +3366,39 @@ export const init = async (): Promise<void> => {
         // Validate the structure without type casting
         // Check that parsed is an object with all required numeric properties
         if (typeof parsed === 'object' && parsed !== null) {
-          // Extract and validate each property individually
-          const parsedObj = parsed;
-          let grassValue: number | undefined;
-          let buildingValue: number | undefined;
-          let roadValue: number | undefined;
-          let forestValue: number | undefined;
-          let waterValue: number | undefined;
-          let totalValue: number | undefined;
+          // Extract and validate properties using loop-based approach
+          const statKeys = ['grass', 'building', 'road', 'forest', 'water', 'total'] as const;
+          const stats: Record<string, number> = {};
+          let allValid = true;
           
-          if ('grass' in parsedObj) {
-            const val = parsedObj.grass;
-            if (typeof val === 'number') {
-              grassValue = val;
+          for (const key of statKeys) {
+            if (!(key in parsed)) {
+              allValid = false;
+              break;
             }
-          }
-          if ('building' in parsedObj) {
-            const val = parsedObj.building;
-            if (typeof val === 'number') {
-              buildingValue = val;
+            const desc = Object.getOwnPropertyDescriptor(parsed, key);
+            if (!desc || !('value' in desc)) {
+              allValid = false;
+              break;
             }
-          }
-          if ('road' in parsedObj) {
-            const val = parsedObj.road;
+            const val: unknown = desc.value;
             if (typeof val === 'number') {
-              roadValue = val;
-            }
-          }
-          if ('forest' in parsedObj) {
-            const val = parsedObj.forest;
-            if (typeof val === 'number') {
-              forestValue = val;
-            }
-          }
-          if ('water' in parsedObj) {
-            const val = parsedObj.water;
-            if (typeof val === 'number') {
-              waterValue = val;
-            }
-          }
-          if ('total' in parsedObj) {
-            const val = parsedObj.total;
-            if (typeof val === 'number') {
-              totalValue = val;
+              stats[key] = val;
+            } else {
+              allValid = false;
+              break;
             }
           }
           
-          if (
-            typeof grassValue === 'number' &&
-            typeof buildingValue === 'number' &&
-            typeof roadValue === 'number' &&
-            typeof forestValue === 'number' &&
-            typeof waterValue === 'number' &&
-            typeof totalValue === 'number'
-          ) {
+          if (allValid) {
             // WASM stats (from hash map)
             const wasmStats = {
-              grass: grassValue,
-              building: buildingValue,
-              road: roadValue,
-              forest: forestValue,
-              water: waterValue,
-              total: totalValue,
+              grass: stats.grass,
+              building: stats.building,
+              road: stats.road,
+              forest: stats.forest,
+              water: stats.water,
+              total: stats.total,
             };
             
             // Log WASM stats
