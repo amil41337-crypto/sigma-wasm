@@ -176,7 +176,7 @@ When a user navigates to a URL, the router:
 - **`/function-calling`**: Function calling agent with DistilGPT-2 and WASM tools
 - **`/fractal-chat`**: Interactive chat that generates fractal images based on keywords, using Qwen1.5-0.5B-Chat and WASM fractal generation
 - **`/hello-wasm`**: Student template demonstrating WASM state management pattern for learning
-- **`/babylon-wfc`**: Wave Function Collapse algorithm with Voronoi noise for grass generation, visualized in 3D with BabylonJS. Includes text-to-layout generation using Qwen chat model for guided procedural generation
+- **`/babylon-wfc`**: Wave Function Collapse algorithm with simplified tile types (grass, building, road, forest, water) and hash map storage, visualized in 3D with BabylonJS. Includes text-to-layout generation using Qwen chat model for guided procedural generation
 
 💡 **Tip**: This architecture is inspired by the pattern of using WASM for efficient, low-level computations (like preprocessing for client-side LLMs) while keeping the main application logic in TypeScript.
 
@@ -1530,16 +1530,12 @@ The `/babylon-wfc` endpoint demonstrates a sophisticated implementation of the W
 **Key Data Structures**:
 
 ```rust:wasm-babylon-wfc/src/lib.rs
-// Each cell maintains a list of possible tile types
-struct WaveCell {
-    possible_tiles: Vec<TileType>,
-}
+use std::collections::HashMap;
 
-// The grid state tracks both collapsed tiles and wave functions
+// The grid state uses hash maps for efficient sparse storage
 struct WfcState {
-    grid: [[Option<TileType>; 50]; 50],           // Collapsed tiles
-    wave: [[WaveCell; 50]; 50],                    // Wave functions (superposition)
-    pre_constraints: [[Option<TileType>; 50]; 50], // Pre-set constraints
+    grid: HashMap<(i32, i32), TileType>,           // Collapsed tiles (hex coordinates)
+    pre_constraints: HashMap<(i32, i32), TileType>, // Pre-set constraints (hex coordinates)
 }
 ```
 
@@ -1557,30 +1553,18 @@ fn entropy(&self) -> usize {
 
 **Constraint Propagation**:
 
-When a cell is collapsed, its edges define what neighbors can be:
+When a cell is collapsed, adjacency rules define what neighboring cells can be. The system is prepared for adjacency constraints where certain tile types can only be placed next to specific other types.
 
-```rust
-fn propagate_constraints(&mut self, x: i32, y: i32) {
-    let tile = self.grid[y][x]; // The collapsed tile
-    let edges = get_tile_edges(tile);
-    
-    // For each neighbor (north, south, east, west):
-    // 1. Get the neighbor's current wave function
-    // 2. Remove all tile types whose edges don't match
-    // 3. If any tiles were removed, recursively propagate to that neighbor
-}
-```
+**Adjacency Rules** (Prepared for Future Implementation):
 
-**Edge Compatibility Rules**:
+The system uses 5 simple tile types with adjacency rules:
+- **Grass**: Can be adjacent to any tile type
+- **Building**: Should connect to roads or grass
+- **Road**: Should connect to buildings or other roads
+- **Forest**: Can be adjacent to grass or other forests
+- **Water**: Should be adjacent to grass or other water
 
-Each tile type has 4 edges (North, South, East, West), and each edge has a type:
-- `Empty`: Exterior space (connects to grass or other empty edges)
-- `Wall`: Connects walls in the same direction (allows wide buildings)
-- `Floor`: Interior space (connects floors, doors, wall interiors)
-- `Grass`: Natural terrain
-- `Door`: Passage (connects to floor)
-
-**Key Rule**: Walls can be adjacent in the same direction (e.g., multiple `WallNorth` tiles in a row) but NOT in opposite directions (prevents double-thick walls). This allows wide/deep buildings while maintaining single-thick walls.
+These rules ensure visually coherent layouts while maintaining flexibility for the WFC algorithm.
 
 **Pre-Constraints System**:
 
@@ -1588,16 +1572,17 @@ Pre-constraints allow external systems to set specific tiles before WFC runs:
 
 ```rust
 #[wasm_bindgen]
-pub fn set_pre_constraint(x: i32, y: i32, tile_type: i32) -> bool {
-    // Sets a tile type at (x, y) before WFC begins
+pub fn set_pre_constraint(q: i32, r: i32, tile_type: i32) -> bool {
+    // Sets a tile type at hex coordinates (q, r) before WFC begins
     // This tile will be collapsed immediately when WFC starts
+    // Uses hash map storage for O(1) lookups
 }
 ```
 
 **Use Cases**:
-1. **Voronoi Grass**: Grass regions are pre-set using Voronoi noise
+1. **Direct Tile Assignment**: Tile types are directly assigned based on layout constraints
 2. **Text-to-Layout**: User-specified constraints from natural language
-3. **Building Seeds**: Floor tiles placed at building seed positions
+3. **Guided Generation**: Specific terrain patterns based on density and clustering preferences
 
 **Gap Prevention**:
 
@@ -1605,17 +1590,16 @@ After the main WFC loop, any remaining uncollapsed cells are filled:
 
 ```rust
 // After WFC loop completes
-for y in 0..height {
-    for x in 0..width {
-        if grid[y][x].is_none() {
-            // Fill with floor as fallback
-            grid[y][x] = Some(TileType::Floor);
-        }
+// With hash map storage, we iterate over the hexagon pattern
+for hex in hexagon_grid {
+    if !grid.contains_key(&(hex.q, hex.r)) {
+        // Fill with grass as fallback
+        grid.insert((hex.q, hex.r), TileType::Grass);
     }
 }
 ```
 
-This ensures no gaps remain, especially at grass borders where edge compatibility might leave cells uncollapsed.
+This ensures no gaps remain in the hexagon pattern. Hash map storage makes it easy to check and fill missing tiles without bounds checking.
 
 ### Text-to-Layout Workflow (TileGPT-Inspired)
 
@@ -1633,10 +1617,9 @@ flowchart TD
     E -->|No| G[Regex fallback parsing]
     G --> F
     F --> H[Convert to pre-constraints]
-    H --> I[Generate grass regions<br/>Voronoi algorithm]
-    H --> J[Place building seeds<br/>Based on density/clustering]
-    I --> K[Set pre-constraints in WASM]
-    J --> K
+    H --> I[Assign tile types<br/>Based on constraints]
+    I --> J[Store in hash map<br/>Hex coordinates q r]
+    J --> K[Set pre-constraints in WASM]
     K --> L[WFC generates layout]
     L --> M[Render in BabylonJS]
     
@@ -1645,6 +1628,7 @@ flowchart TD
     style C fill:#fff4e1
     style D fill:#e8f5e9
     style H fill:#e8f5e9
+    style J fill:#e8f5e9
     style K fill:#f3e5f5
     style L fill:#f3e5f5
     style M fill:#e1f5ff
@@ -1662,7 +1646,7 @@ The Qwen chat model (`Xenova/qwen1.5-0.5b-chat`) is used instead of a base model
 const messages = [
   {
     role: 'user',
-    content: `Generate a layout description for a 50x50 grid based on: "${prompt}"
+    content: `Generate a layout description for a hexagonal grid (30 layers, 2791 tiles) based on: "${prompt}"
     
     Provide a JSON object with:
     - buildingDensity: "sparse" | "medium" | "dense"
@@ -1714,22 +1698,19 @@ Constraints are converted to specific tile placements:
 ```typescript:src/routes/babylon-wfc.ts
 function constraintsToPreConstraints(
   constraints: LayoutConstraints,
-  width: number,
-  height: number
-): Array<{ x: number; y: number; tileType: TileType }> {
-  // 1. Generate grass regions using Voronoi-like algorithm
-  //    - Number of seeds based on grassRatio
-  //    - Each cell assigned to closest seed
-  //    - Cells within max distance become grass
+  _width: number,
+  _height: number
+): Array<{ q: number; r: number; tileType: TileType }> {
+  // 1. Generate hexagon grid (30 layers, 2791 tiles)
+  //    - Uses hex coordinates (q, r) for all tiles
   
-  // 2. Place building seeds based on density and clustering
-  //    - Clustered: Group buildings into clusters
-  //    - Distributed: Spread evenly
-  //    - Random: Random placement
+  // 2. Assign tile types based on constraints
+  //    - Randomly distribute grass, building, road, forest, water
+  //    - Based on grassRatio and other constraint parameters
   
-  // 3. Convert seeds to Floor tile pre-constraints
-  //    - Building seeds become Floor tiles
-  //    - Grass regions become Grass tiles
+  // 3. Store pre-constraints with hex coordinates
+  //    - All tiles stored as { q, r, tileType }
+  //    - No bounds checking needed (hash map storage)
   
   return preConstraints;
 }
@@ -1740,15 +1721,12 @@ function constraintsToPreConstraints(
 The WFC algorithm runs with pre-constraints applied:
 
 ```rust:wasm-babylon-wfc/src/lib.rs
-// Phase 2: Apply pre-constraints
-for y in 0..height {
-    for x in 0..width {
-        if let Some(pre_tile) = pre_constraints[y][x] {
-            // Pre-collapse with constraint
-            grid[y][x] = Some(pre_tile);
-            wave[y][x].possible_tiles = vec![pre_tile];
-        }
-    }
+// Apply pre-constraints from hash map
+let pre_constraints: Vec<((i32, i32), TileType)> = 
+    state.pre_constraints.iter().map(|((q, r), tile_type)| ((*q, *r), *tile_type)).collect();
+for ((q, r), tile_type) in pre_constraints {
+    // Pre-collapse with constraint
+    state.grid.insert((q, r), tile_type);
 }
 
 // Propagate constraints from pre-collapsed cells
@@ -1760,7 +1738,7 @@ for y in 0..height {
 - **Why Qwen?**: Chat models are better at instruction following and structured output than base models
 - **Why Two-Stage Parsing?**: JSON is preferred but regex provides robustness
 - **Why Pre-Constraints?**: Allows high-level control while letting WFC handle details
-- **Why Voronoi for Grass?**: Creates natural-looking, irregular regions instead of uniform blocks
+- **Why Hash Map Storage?**: Enables O(1) lookups, no size limitations, and memory-efficient sparse grid storage for hexagonal patterns
 
 ---
 

@@ -367,7 +367,7 @@ const result = await imageToTextPipeline(dataUrl);
 
 ### WFC/Babylon-WFC Learnings
 
-**What We Learned**: Wave Function Collapse requires careful edge compatibility rules and gap-filling logic to prevent visual artifacts.
+**What We Learned**: Wave Function Collapse requires careful edge compatibility rules and gap-filling logic to prevent visual artifacts. Hexagonal grids use a layer-based system where each layer adds a ring around the center, forming centered hexagonal numbers.
 
 **The Mistakes**:
 
@@ -429,15 +429,10 @@ const result = await imageToTextPipeline(dataUrl);
 
 1. **Pre-Constraints System**: 
    - Allows external systems to guide WFC generation
-   - Used for Voronoi grass and text-to-layout
+   - Used for direct tile type assignment and text-to-layout
    - Must be applied before WFC begins
    - Constraints propagate automatically
-
-2. **Voronoi Grass Generation**:
-   - Creates natural-looking, irregular grass patches
-   - Prevents large uniform green quadrants
-   - Number of seeds controls grass density
-   - Each cell assigned to closest seed
+   - Stored in hash map for O(1) lookups and no size limitations
 
 3. **Entropy-Based Collapse**:
    - Always collapse lowest-entropy cells first
@@ -450,9 +445,21 @@ const result = await imageToTextPipeline(dataUrl);
    - Stop when no more changes occur
 
 **Best Practices**:
-- Design edge compatibility rules carefully
-- Test with various grid sizes and constraints
+- Design adjacency rules carefully (prepared for future constraint implementation)
+- Test with various hexagon sizes and constraints
 - Always fill remaining cells after WFC completes
+- Use hash map storage for sparse grids to avoid size limitations
+
+**Hexagon Layer System**:
+- Hexagonal grids form centered hexagonal numbers
+- Layer 0: 1 tile (center)
+- Layer 1: adds 6 tiles (total 7)
+- Layer 2: adds 12 tiles (total 19)
+- Layer n: adds 6n tiles
+- Total tiles up to layer n: 3n(n+1) + 1
+- For layer 30: 3×30×31 + 1 = 2791 tiles
+- Use hex distance from center to determine layer membership
+- Only generate tiles within the hexagon pattern (distance <= maxLayer)
 - Verify camera positioning matches actual tile positions
 - Use pre-constraints for guided generation
 
@@ -496,19 +503,19 @@ const result = await imageToTextPipeline(dataUrl);
 
 2. **Mesh Instancing**:
    ```typescript
-   // Create one base mesh per tile type (11 types)
+   // Create one base mesh per tile type (5 types)
    const baseMeshes = new Map<TileType['type'], Mesh>();
    
-   // Create instances for each tile (2500 instances from 11 base meshes)
+   // Create instances for each tile (2791 instances from 5 base meshes)
    for (const tile of tiles) {
      const baseMesh = baseMeshes.get(tile.type);
-     const instance = baseMesh.createInstance(`tile_${x}_${y}`);
-     instance.position.set(x, 0, y);
+     const instance = baseMesh.createInstance(`tile_${q}_${r}`);
+     instance.position.set(worldX, 0, worldZ);
    }
    ```
-   - Reduces draw calls from 2500 to 11
+   - Reduces draw calls from 2791 to 5
    - Massive performance improvement
-   - Essential for rendering large grids
+   - Essential for rendering large hexagonal grids
 
 3. **Material Setup**:
    ```typescript

@@ -384,25 +384,24 @@ if (generateFromTextBtn && promptInputEl) {
 // Tile type discriminated union
 export type TileType =
   | { type: 'grass' }
-  | { type: 'floor' }
-  | { type: 'wallNorth' }
-  | { type: 'wallSouth' }
-  | { type: 'wallEast' }
-  | { type: 'wallWest' }
-  | { type: 'cornerNE' }
-  | { type: 'cornerNW' }
-  | { type: 'cornerSE' }
-  | { type: 'cornerSW' }
-  | { type: 'door' };
+  | { type: 'building' }
+  | { type: 'road' }
+  | { type: 'forest' }
+  | { type: 'water' };
 
 // Usage with type narrowing
 function getTileColor(tileType: TileType): Color3 {
   switch (tileType.type) {
     case 'grass':
-      return new Color3(0.2, 0.8, 0.2);
-    case 'floor':
-      return new Color3(0.6, 0.6, 0.6);
-    // ... other cases
+      return new Color3(0.2, 0.8, 0.2); // Green
+    case 'building':
+      return new Color3(0.5, 0.5, 0.5); // Gray
+    case 'road':
+      return new Color3(0.3, 0.3, 0.3); // Dark gray
+    case 'forest':
+      return new Color3(0.1, 0.5, 0.1); // Dark green
+    case 'water':
+      return new Color3(0.2, 0.4, 0.8); // Blue
   }
 }
 ```
@@ -504,11 +503,11 @@ generate_layout: generateLayoutFunc as () => void,
 
 ```rust
 use std::sync::{LazyLock, Mutex};
+use std::collections::HashMap;
 
 struct WfcState {
-    grid: [[Option<TileType>; 50]; 50],
-    wave: [[WaveCell; 50]; 50],
-    pre_constraints: [[Option<TileType>; 50]; 50],
+    grid: HashMap<(i32, i32), TileType>,
+    pre_constraints: HashMap<(i32, i32), TileType>,
 }
 
 static WFC_STATE: LazyLock<Mutex<WfcState>> = LazyLock::new(|| Mutex::new(WfcState::new()));

@@ -32,14 +32,16 @@
                 <h2>About Wave Function Collapse</h2>
                 <p>
                     This demo showcases the <strong>Wave Function Collapse (WFC)</strong> algorithm
-                    implemented in Rust WASM and visualized in 3D using BabylonJS.
+                    implemented in Rust WASM and visualized in 3D using BabylonJS. The layout uses a
+                    hexagonal grid pattern with hash map storage for efficient sparse grid management.
                 </p>
                 <p>
                     <strong>How WFC Works:</strong>
                 </p>
                 <ul>
-                    <li><strong>Two-phase generation:</strong> First, Voronoi noise generates natural-looking grass regions</li>
-                    <li><strong>Pre-constraints:</strong> Grass areas are fixed before WFC begins</li>
+                    <li><strong>Hexagonal Grid:</strong> Uses a pointy-top hex grid with axial coordinates (q, r)</li>
+                    <li><strong>Pre-constraints:</strong> Tile types are set before WFC begins based on layout constraints</li>
+                    <li><strong>Hash Map Storage:</strong> Efficient O(1) lookups with no grid size limitations</li>
                     <li><strong>Entropy-based collapse:</strong> The algorithm tracks entropy (number of possibilities) for each cell</li>
                     <li><strong>Lowest entropy first:</strong> Cells with fewest possibilities are collapsed first to minimize contradictions</li>
                     <li><strong>Constraint propagation:</strong> When tiles are placed, incompatible tiles are removed from neighbors</li>
@@ -54,32 +56,33 @@
                         <span><strong>Grass</strong> - Natural terrain areas</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <div style="width: 30px; height: 30px; background-color: rgb(153, 153, 153); border: 1px solid #333;"></div>
-                        <span><strong>Floor</strong> - Interior surfaces</span>
+                        <div style="width: 30px; height: 30px; background-color: rgb(127, 127, 127); border: 1px solid #333;"></div>
+                        <span><strong>Building</strong> - Structures and constructions</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <div style="width: 30px; height: 30px; background-color: rgb(153, 102, 51); border: 1px solid #333; flex-shrink: 0;"></div>
-                        <span><strong>Walls</strong> - North/South/East/West (Brown)</span>
+                        <div style="width: 30px; height: 30px; background-color: rgb(76, 76, 76); border: 1px solid #333;"></div>
+                        <span><strong>Road</strong> - Pathways and routes</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <div style="width: 30px; height: 30px; background-color: rgb(77, 77, 77); border: 1px solid #333;"></div>
-                        <span><strong>Corners</strong> - NE/NW/SE/SW</span>
+                        <div style="width: 30px; height: 30px; background-color: rgb(25, 127, 25); border: 1px solid #333;"></div>
+                        <span><strong>Forest</strong> - Trees and vegetation</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <div style="width: 30px; height: 30px; background-color: rgb(204, 153, 51); border: 1px solid #333;"></div>
-                        <span><strong>Door</strong> - Entrance/exit points</span>
+                        <div style="width: 30px; height: 30px; background-color: rgb(51, 102, 204); border: 1px solid #333;"></div>
+                        <span><strong>Water</strong> - Water bodies and lakes</span>
                     </div>
                 </div>
                 <p>
                     <strong>Features:</strong>
                 </p>
                 <ul>
-                    <li><strong>11 Tile Types:</strong> Grass, Floor, 4 Wall directions, 4 Corner types, and Door</li>
-                    <li><strong>50x50 Grid:</strong> 2500 tiles generated procedurally</li>
+                    <li><strong>5 Simple Tile Types:</strong> Grass, Building, Road, Forest, and Water</li>
+                    <li><strong>Hexagonal Grid:</strong> 30-layer hexagon pattern (2791 tiles) with no size limitations</li>
+                    <li><strong>Hash Map Storage:</strong> Efficient sparse grid storage with O(1) lookups</li>
                     <li><strong>Mesh Instancing:</strong> Efficient rendering using BabylonJS instancing</li>
-                    <li><strong>3D Visualization:</strong> Interactive camera controls</li>
+                    <li><strong>3D Visualization:</strong> Interactive camera controls with hexagon-centered layout</li>
                     <li><strong>Babylon 2D UI:</strong> Native UI controls for recompute and fullscreen</li>
-                </p>
+                </ul>
                 <p>
                     <strong>Controls:</strong>
                 </p>
@@ -106,6 +109,12 @@
                 <h2>3D Visualization</h2>
                 <p>The WFC-generated grid is rendered below. Use mouse controls to navigate.</p>
                 <canvas id="renderCanvas" style="width: 100%; height: 600px; display: block; border: 1px solid #333;"></canvas>
+            </div>
+            
+            <!-- System Logs -->
+            <div id="systemLogs" class="system-logs-container">
+                <h3>System Logs</h3>
+                <div id="systemLogsContent" class="system-logs-content"></div>
             </div>
         </div>
     </div>

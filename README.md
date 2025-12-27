@@ -232,7 +232,7 @@ This template is intentionally simplified to serve as a learning resource. Stude
 
 ### Babylon WFC - Wave Function Collapse 3D (`/babylon-wfc`)
 
-A 3D visualization of the Wave Function Collapse (WFC) algorithm, a procedural generation technique that creates coherent patterns from a set of rules. This demo showcases 11 different tile types rendered in 3D using BabylonJS with mesh instancing for optimal performance.
+A 3D visualization of the Wave Function Collapse (WFC) algorithm, a procedural generation technique that creates coherent patterns from a set of rules. This demo showcases 5 simple tile types rendered in 3D using BabylonJS with mesh instancing for optimal performance. The layout uses a hexagonal grid pattern with hash map storage for efficient sparse grid management and no size limitations.
 
 **Technology Stack:**
 - Rust/WASM for WFC algorithm implementation
@@ -242,10 +242,13 @@ A 3D visualization of the Wave Function Collapse (WFC) algorithm, a procedural g
 - Qwen 1.5-0.5B-Chat (Transformers.js) for text-to-layout generation
 
 **Features:**
-- Wave Function Collapse algorithm generating 50×50 tile grids
-- 11 distinct tile types: Grass, Floor, 4 Wall directions, 4 Corner types, and Door
+- Wave Function Collapse algorithm generating hexagonal tile grids
+- Layer-based hexagon: 30 layers (2791 tiles total) forming a complete hexagon shape
+- Hexagon pattern: Each layer adds a ring around the center (layer 0 = 1 tile, layer n adds 6n tiles)
+- Total tiles formula: 3n(n+1) + 1, where n = 30 → 2791 tiles
+- 5 simple tile types: Grass, Building, Road, Forest, and Water
 - 3D visualization with interactive camera controls
-- Mesh instancing for efficient rendering of 2500 tiles
+- Mesh instancing for efficient rendering of thousands of hexagonal tiles
 - Babylon 2D UI buttons for recompute and fullscreen
 - **Text-to-Layout Generation**: Enter natural language prompts (e.g., "sparse buildings", "dense clustered layout") to guide WFC generation
 - Real-time procedural generation
@@ -253,17 +256,11 @@ A 3D visualization of the Wave Function Collapse (WFC) algorithm, a procedural g
 **WASM Module:** `wasm-babylon-wfc`
 
 **Tile Types:**
-1. Grass
-2. Floor
-3. Wall (North)
-4. Wall (South)
-5. Wall (East)
-6. Wall (West)
-7. Corner (NE)
-8. Corner (NW)
-9. Corner (SE)
-10. Corner (SW)
-11. Door/Entrance
+1. Grass - Natural terrain areas
+2. Building - Structures and constructions
+3. Road - Pathways and routes
+4. Forest - Trees and vegetation
+5. Water - Water bodies and lakes
 
 **WFC Algorithm Deep Dive:**
 
@@ -271,46 +268,45 @@ The Wave Function Collapse algorithm is a constraint-based procedural generation
 
 **Key Concepts:**
 
-1. **Superposition**: Each cell maintains a list of possible tile types (the "wave function"). Initially, all 11 tile types are possible for non-grass cells.
+1. **Superposition**: Each cell maintains a list of possible tile types (the "wave function"). Initially, all 5 tile types are possible for each cell.
 
 2. **Entropy**: The number of possible tile types for a cell. Lower entropy means fewer possibilities, making the cell more "certain" about its final state. The algorithm always collapses the cell with the lowest entropy first to minimize contradictions.
 
-3. **Constraint Propagation**: When a cell is collapsed to a specific tile type, its edges define what neighboring cells can be. For example:
-   - A `WallNorth` tile has a `Floor` edge on its south side (interior)
-   - This means the cell to the south can only be tiles with a `Floor` edge on their north side
-   - All incompatible tile types are removed from the neighbor's wave function
-   - This propagation continues recursively to all affected neighbors
+3. **Constraint Propagation**: When a cell is collapsed to a specific tile type, adjacency rules define what neighboring cells can be. All incompatible tile types are removed from the neighbor's wave function, and this propagation continues recursively to all affected neighbors.
 
-4. **Edge Compatibility Rules**: Each tile type has four edges (North, South, East, West), and each edge has a type (`Empty`, `Wall`, `Floor`, `Grass`, `Door`). Tiles can only be adjacent if their shared edges match:
-   - `WallNorth` (South=Floor) can connect to `Floor` (North=Floor) or `Door` (North=Floor)
-   - `WallNorth` (North=Empty) connects to exterior space (grass or empty)
-   - Walls can be adjacent in the same direction (e.g., multiple `WallNorth` tiles in a row) but not in opposite directions (preventing double-thick walls)
+4. **Adjacency Rules**: The system is prepared for adjacency constraints where certain tile types can only be placed next to specific other types. For example:
+   - Roads should connect to buildings or other roads
+   - Water should be adjacent to grass or other water
+   - Buildings can be adjacent to roads or grass
+   - Forests can be adjacent to grass or other forests
 
 5. **Pre-Constraints**: Before WFC begins, certain cells can be "pre-collapsed" to specific tile types. This is used for:
-   - Grass regions (via Voronoi noise)
+   - Direct tile type assignment based on layout constraints
    - Text-to-layout generation (user-specified constraints)
-   - Building seeds (for guided generation)
+   - Guided generation with specific terrain patterns
 
 **Two-Phase Generation:**
 
-- **Phase 1 - Voronoi Grass Generation**: 
-  - Generates 10 seed points randomly across the 50×50 grid
-  - Each cell is assigned to the region of its closest seed point
-  - Creates natural-looking, irregular grass patches
-  - Grass cells are pre-collapsed before WFC begins
-  - This prevents large uniform green quadrants and adds visual variety
+- **Phase 1 - Hexagon Pattern Generation**: 
+  - Grid is a complete hexagon shape with 30 layers (2791 tiles)
+  - Hexagon layers: Layer 0 = 1 tile (center), layer n adds 6n tiles
+  - Total tiles: 3×30×31 + 1 = 2791 tiles
+  - Only tiles within the hexagon pattern are generated
+  - Tile types are assigned based on layout constraints (grass ratio, building density, etc.)
+  - Pre-constraints are set before WFC begins using hash map storage
+  - This creates a natural-looking hexagon-shaped map
 
 - **Phase 2 - WFC Collapse**: 
-  - All non-grass cells start in superposition (all 11 tile types possible)
-  - Grass cells are already collapsed, so their constraints propagate immediately
+  - All cells start in superposition (all 5 tile types possible)
+  - Pre-constrained cells are already collapsed, so their constraints propagate immediately
   - Algorithm loop:
     1. Find the uncollapsed cell with lowest entropy
     2. If multiple cells have the same lowest entropy, pick randomly
     3. Collapse the cell to a random valid tile type from its possibilities
     4. Propagate constraints to all neighbors (remove incompatible tiles)
     5. Repeat until all cells are collapsed
-  - If a cell has 0 valid possibilities (contradiction), it falls back to `Floor`
-  - After the loop, any remaining uncollapsed cells are filled with `Floor` to prevent gaps
+  - If a cell has 0 valid possibilities (contradiction), it falls back to `Grass`
+  - After the loop, any remaining uncollapsed cells are filled with `Grass` to prevent gaps
 
 **Text-to-Layout Workflow (TileGPT-Inspired):**
 
@@ -333,12 +329,9 @@ This feature combines natural language understanding with constraint-based gener
    - Defaults to reasonable values if parsing completely fails
 
 4. **Pre-Constraint Conversion**:
-   - **Grass Regions**: Uses Voronoi-like algorithm with density based on `grassRatio`
-   - **Building Seeds**: Places building seed points based on `buildingDensity` and `clustering`:
-     - Clustered: Groups buildings into clusters
-     - Distributed: Spreads buildings evenly
-     - Random: Places buildings randomly
-   - Seeds are converted to `Floor` tile pre-constraints
+   - **Tile Type Assignment**: Directly assigns tile types to hexagon cells based on constraints
+   - **Distribution**: Randomly distributes tile types (grass, building, road, forest, water) based on `grassRatio` and other constraints
+   - **Hash Map Storage**: All pre-constraints are stored in a hash map with hex coordinates (q, r) as keys, enabling O(1) lookups and no size limitations
 
 5. **WFC Generation**: WFC algorithm runs with pre-constraints applied, generating a detailed layout that respects the high-level constraints
 
@@ -355,8 +348,8 @@ Unlike base language models (like DistilGPT-2), Qwen is a chat model specificall
 This makes it ideal for converting natural language into structured constraint data.
 
 **Visual Features:**
-- **Color Coding**: Grass (green), Floor (gray), Walls (brown), Corners (dark gray), Door (orange)
-- **Camera**: Initially centered on grid with optimal viewing angle
+- **Color Coding**: Grass (green), Building (gray), Road (dark gray), Forest (dark green), Water (blue)
+- **Camera**: Initially centered on hexagon grid with optimal viewing angle
 - **Interactive**: Mouse controls for rotation and zoom
 
 **Key Files:**
@@ -395,6 +388,18 @@ This project demonstrates several important patterns for Rust WASM integration:
    - Type guards instead of type assertions
    - Runtime validation before type narrowing
    - **Learning Point**: TypeScript's type system is powerful but requires discipline to use effectively
+
+5. **Hash Map Storage Pattern**:
+   ```rust
+   struct WfcState {
+       grid: HashMap<(i32, i32), TileType>,
+       pre_constraints: HashMap<(i32, i32), TileType>,
+   }
+   ```
+   - **Why?**: Enables sparse grid storage with O(1) lookups and no size limitations
+   - **Learning Point**: Hash maps are ideal for hexagonal grids where not all coordinates are used
+   - **Trade-off**: Slightly more memory overhead than arrays, but enables unlimited grid sizes
+   - **Benefits**: No bounds checking needed, memory efficient for sparse grids, scales to any hexagon size
 
 ---
 
@@ -444,7 +449,7 @@ This project demonstrates several important patterns for Rust WASM integration:
 - **BabylonJS**: 3D rendering engine
   - **Why BabylonJS?**: Full-featured, well-documented, active community
   - **Learning Point**: Mesh instancing allows rendering thousands of objects efficiently
-  - **Performance**: Instancing reduces draw calls from 2500 to 11 (one per tile type)
+  - **Performance**: Instancing reduces draw calls from 2791 to 5 (one per tile type)
 
 **Build & Deployment:**
 

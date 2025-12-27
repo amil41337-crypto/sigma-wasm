@@ -206,85 +206,15 @@ export interface WasmHello {
 // Comprehensive type definitions for Wave Function Collapse algorithm
 
 /**
- * Edge type discriminated union
- * 
- * **Learning Point**: Using a discriminated union ensures type safety.
- * Each edge type represents a different kind of tile boundary that must
- * match between adjacent tiles for the WFC algorithm to work correctly.
- */
-export type EdgeType =
-  | { type: 'empty' }
-  | { type: 'wall' }
-  | { type: 'floor' }
-  | { type: 'grass' }
-  | { type: 'door' };
-
-/**
- * Tile type discriminated union for 11 different tile types
- * 
- * **Learning Point**: Each tile type has specific edge compatibility rules.
- * The WFC algorithm uses these types to determine which tiles can be placed
- * adjacent to each other in the grid.
+ * Tile type discriminated union for 5 simple tile types
  */
 export type TileType =
   | { type: 'grass' }
-  | { type: 'floor' }
-  | { type: 'wallNorth' }
-  | { type: 'wallSouth' }
-  | { type: 'wallEast' }
-  | { type: 'wallWest' }
-  | { type: 'cornerNE' }
-  | { type: 'cornerNW' }
-  | { type: 'cornerSE' }
-  | { type: 'cornerSW' }
-  | { type: 'door' };
+  | { type: 'building' }
+  | { type: 'road' }
+  | { type: 'forest' }
+  | { type: 'water' };
 
-/**
- * Grid tile interface representing a single cell in the 50x50 grid
- * 
- * **Learning Point**: This interface combines position, tile type, and edge
- * information. The position is stored for efficient lookup during rendering.
- */
-export interface GridTile {
-  x: number;
-  y: number;
-  tileType: TileType;
-  edgeTypes: {
-    north: EdgeType;
-    south: EdgeType;
-    east: EdgeType;
-    west: EdgeType;
-  };
-}
-
-/**
- * Compatibility map defining which tile types can be adjacent
- * 
- * **Learning Point**: This structure pre-computes compatibility rules to
- * speed up the WFC algorithm. Each tile type maps to an array of compatible
- * neighbor types for each direction.
- */
-export interface CompatibleTypes {
-  [key: string]: {
-    north: readonly TileType[];
-    south: readonly TileType[];
-    east: readonly TileType[];
-    west: readonly TileType[];
-  };
-}
-
-/**
- * Complete layout data structure
- * 
- * **Learning Point**: This represents the entire 50x50 grid after WFC
- * generation. The grid is a 2D array where each cell contains either
- * a GridTile or null (if not yet determined).
- */
-export interface LayoutData {
-  width: number;
-  height: number;
-  grid: ReadonlyArray<ReadonlyArray<GridTile | null>>;
-}
 
 /**
  * Layout constraints interface for text-to-layout generation
@@ -310,10 +240,11 @@ export interface LayoutConstraints {
 export interface WasmModuleBabylonWfc {
   memory: WebAssembly.Memory;
   generate_layout(): void;
-  get_tile_at(x: number, y: number): number;
-  set_pre_constraint(x: number, y: number, tile_type: number): boolean;
+  get_tile_at(q: number, r: number): number;
+  set_pre_constraint(q: number, r: number, tile_type: number): boolean;
   clear_pre_constraints(): void;
   clear_layout(): void;
+  get_stats(): string;
 }
 
 /**
