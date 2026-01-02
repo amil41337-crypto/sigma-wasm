@@ -76,42 +76,24 @@ let babylonChunksWorker: Worker | null = null;
 import { PARAMETER_SET_PATTERNS, type ParameterSetPattern } from '../parameter-set-embedding-prompts';
 
 /**
- * Tile Configuration
- * 
- * **Learning Point**: Centralized configuration for tile dimensions ensures consistency
- * and makes it easy to adjust tile sizes without hunting through the codebase.
+ * Tile Configuration - centralized tile dimensions
  */
 const TILE_CONFIG = {
-  /** Model width in meters (flat-to-flat dimension for pointy-top hex) */
-  modelWidth: 17.3,
-  /** Model depth in meters (pointy-top to pointy-top dimension) */
-  modelDepth: 20.0,
-  /** Tile height in meters (vertical dimension) */
-  hexHeight: 0.3,
-  /**
-   * Calculated hexSize in meters (distance from center to vertex)
-   * For pointy-top hex: depth = hexSize * 3
-   * Therefore: hexSize = modelDepth / 3
-   */
+  modelWidth: 17.3, // flat-to-flat dimension for pointy-top hex
+  modelDepth: 20.0, // pointy-top to pointy-top dimension
+  hexHeight: 0.3,   // vertical dimension
   get hexSize(): number {
-    return this.modelDepth / 3.0;
+    return this.modelDepth / 3.0; // distance from center to vertex
   },
 } as const;
 
 /**
- * Camera Configuration
- * 
- * **Learning Point**: Centralized camera configuration ensures consistent initial positioning
- * and makes it easy to adjust camera settings without hunting through the codebase.
+ * Camera Configuration - initial camera positioning
  */
 const CAMERA_CONFIG = {
-  /** Initial horizontal rotation (alpha) in radians */
-  initialAlpha: 0,
-  /** Initial vertical rotation (beta) in radians - 0 = straight down (top view) */
-  initialBeta: 0,
-  /** Initial camera radius (distance from target) in meters */
-  initialRadius: 250,
-  /** Grid center position (target for camera) */
+  initialAlpha: 0,   // horizontal rotation (radians)
+  initialBeta: 0,    // vertical rotation (0 = straight down)
+  initialRadius: 250, // distance from target (meters)
   gridCenter: { x: 0, y: 0, z: 0 },
 } as const;
 
@@ -214,9 +196,14 @@ const WASM_BABYLON_CHUNKS: WasmBabylonChunks = {
 let addLogEntry: ((message: string, type?: 'info' | 'success' | 'warning' | 'error') => void) | null = null;
 
 /**
- * Store the last user prompt for comparison with generated stats
+ * Helper to log messages (reduces verbosity)
  */
-let lastUserPrompt: string | null = null;
+function log(message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info'): void {
+  if (addLogEntry !== null) {
+    addLogEntry(message, type);
+  }
+}
+
 
 /**
  * Store the current number of rings for rendering
@@ -246,9 +233,6 @@ function tileTypeFromNumber(tileNum: number): TileType | null {
 
 /**
  * Get color for a tile type
- * 
- * **Learning Point**: Each tile type gets a distinct color for visual differentiation.
- * In a full implementation, you might load textures instead of using solid colors.
  */
 function getTileColor(tileType: TileType): Color3 {
   switch (tileType.type) {
@@ -461,39 +445,13 @@ function validateBabylonChunksModule(exports: unknown): WasmModuleBabylonChunks 
       return typeof result === 'string' ? result : '[]';
     },
     get_wasm_version: (): string => {
-      if (typeof getWasmVersionFunc !== 'function') {
-        return 'unknown (function not found)';
-      }
       try {
-        // Call the wasm-bindgen generated function which should return a string
         // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment
         const result = getWasmVersionFunc();
-        // wasm-bindgen automatically converts String returns to JavaScript strings
-        // If we get a string, return it directly
         if (typeof result === 'string') {
           return result;
         }
-        // Check if it's an array (tuple) and convert manually if needed
-        if (Array.isArray(result) && result.length === 2 && typeof result[0] === 'number' && typeof result[1] === 'number') {
-          // This is the raw tuple [ptr, len] - we need to access the WASM memory
-          // But we shouldn't need to do this if the wrapper is working correctly
-          return 'unknown (got tuple - wrapper issue)';
-        }
-        // Check if it's an object with string properties
-        if (typeof result === 'object' && result !== null) {
-          // Try to extract string value from object
-          if ('value' in result && typeof result.value === 'string') {
-            return result.value;
-          }
-          if ('toString' in result && typeof result.toString === 'function') {
-            const str = result.toString();
-            if (typeof str === 'string') {
-              return str;
-            }
-          }
-          return `unknown (object: ${JSON.stringify(result).substring(0, 100)})`;
-        }
-        return `unknown (unexpected type: ${typeof result})`;
+        return `unknown (type: ${typeof result})`;
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : 'Unknown error';
         return `unknown (error: ${errorMsg})`;
@@ -543,11 +501,6 @@ async function loadEmbeddingModel(): Promise<void> {
   isEmbeddingModelLoading = true;
 
   try {
-    if (addLogEntry !== null) {
-      addLogEntry('Loading embedding model for pattern matching in worker...', 'info');
-    }
-
-    // Create worker if it doesn't exist
     if (!babylonChunksWorker) {
       babylonChunksWorker = new Worker(
         new URL('./babylon-chunks.worker.ts', import.meta.url),
@@ -557,7 +510,6 @@ async function loadEmbeddingModel(): Promise<void> {
 
     const worker = babylonChunksWorker;
 
-    // Wait for worker to load embedding model
     await new Promise<void>((resolve, reject) => {
       const id = crypto.randomUUID();
 
@@ -576,24 +528,15 @@ async function loadEmbeddingModel(): Promise<void> {
       };
 
       worker.addEventListener('message', handler);
-
-      const loadMessage: LoadEmbeddingMessage = { id, type: 'load-embedding' };
-      worker.postMessage(loadMessage);
+      worker.postMessage({ id, type: 'load-embedding' } as LoadEmbeddingMessage);
     });
 
     isEmbeddingModelLoaded = true;
     isEmbeddingModelLoading = false;
-
-    if (addLogEntry !== null) {
-      addLogEntry('Embedding model loaded successfully', 'success');
-    }
   } catch (error) {
     isEmbeddingModelLoading = false;
     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-    if (addLogEntry !== null) {
-      addLogEntry(`Failed to load embedding model: ${errorMsg}`, 'warning');
-    }
-    // Don't throw - embedding matching is optional enhancement
+    log(`Failed to load embedding model: ${errorMsg}`, 'warning');
   }
 }
 
@@ -750,14 +693,9 @@ async function cachePattern(pattern: string, embedding: Float32Array, constraint
 
     db.close();
 
-    if (addLogEntry !== null) {
-      addLogEntry(`  → Stored pattern "${pattern}" in IndexedDB with ${embedding.length}-dim embedding`, 'success');
-    }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-    if (addLogEntry !== null) {
-      addLogEntry(`Failed to cache pattern: ${errorMsg}`, 'warning');
-    }
+    log(`Failed to cache pattern: ${errorMsg}`, 'warning');
   }
 }
 
@@ -774,9 +712,7 @@ async function loadCachedPatterns(): Promise<Array<CachedPattern>> {
     // Type predicate validates and narrows unknown to the stored shape
     const storedResults = await getTypedAll(store, isCachedPatternStored);
     const cachedPatterns: Array<CachedPattern> = [];
-    let firstEmbeddingLogged = false;
 
-    // storedResults is now properly typed as Array<{ pattern: string; embedding: number[]; constraints: unknown }>
     for (const stored of storedResults) {
       // Type predicate already validated structure - stored is properly narrowed
       // Convert embedding array to Float32Array
@@ -789,14 +725,6 @@ async function loadCachedPatterns(): Promise<Array<CachedPattern>> {
         }
       }
 
-      // Log first 10 float values of the first embedding loaded
-      if (!firstEmbeddingLogged && embedding.length > 0) {
-        const firstTen = Array.from(embedding.slice(0, 10));
-        if (addLogEntry !== null) {
-          addLogEntry(`[FIRST CACHED EMBEDDING] Pattern "${stored.pattern}": First 10 float values: [${firstTen.map(v => v.toFixed(6)).join(', ')}]`, 'info');
-        }
-        firstEmbeddingLogged = true;
-      }
 
       // Narrow constraints type properly with union type checks
       const constraints: Partial<LayoutConstraints> = {};
@@ -860,15 +788,11 @@ async function loadCachedPatterns(): Promise<Array<CachedPattern>> {
       });
     }
 
-    const patterns = cachedPatterns;
-
     db.close();
-    return patterns;
+    return cachedPatterns;
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-    if (addLogEntry !== null) {
-      addLogEntry(`Failed to load cached patterns: ${errorMsg}`, 'warning');
-    }
+    log(`Failed to load cached patterns: ${errorMsg}`, 'warning');
     return [];
   }
 }
@@ -879,14 +803,8 @@ async function loadCachedPatterns(): Promise<Array<CachedPattern>> {
  */
 function cosineSimilarity(a: Float32Array, b: Float32Array): number {
   if (a.length !== b.length) {
-    if (addLogEntry !== null) {
-      addLogEntry(`⚠ Vector dimension mismatch: ${a.length} vs ${b.length}`, 'warning');
-    }
+    log(`Vector dimension mismatch: ${a.length} vs ${b.length}`, 'warning');
     return 0;
-  }
-
-  if (addLogEntry !== null) {
-    addLogEntry(`  → Computing cosine similarity (vectors: ${a.length} dimensions)...`, 'info');
   }
 
   let dotProduct = 0;
@@ -901,19 +819,10 @@ function cosineSimilarity(a: Float32Array, b: Float32Array): number {
 
   const denominator = Math.sqrt(normA) * Math.sqrt(normB);
   if (denominator === 0) {
-    if (addLogEntry !== null) {
-      addLogEntry(`  → Zero denominator detected (normA: ${normA.toFixed(6)}, normB: ${normB.toFixed(6)})`, 'warning');
-    }
     return 0;
   }
 
-  const similarity = dotProduct / denominator;
-  
-  if (addLogEntry !== null) {
-    addLogEntry(`  → Cosine similarity computed: dotProduct=${dotProduct.toFixed(6)}, ||A||=${Math.sqrt(normA).toFixed(6)}, ||B||=${Math.sqrt(normB).toFixed(6)}, result=${similarity.toFixed(6)}`, 'info');
-  }
-
-  return similarity;
+  return dotProduct / denominator;
 }
 
 /**
@@ -928,10 +837,6 @@ async function generateEmbedding(text: string): Promise<Float32Array | null> {
   }
 
   try {
-    if (addLogEntry !== null) {
-      addLogEntry(`Generating embedding for: "${text}"`, 'info');
-    }
-
     const worker = babylonChunksWorker;
 
     return new Promise<Float32Array | null>((resolve) => {
@@ -945,31 +850,19 @@ async function generateEmbedding(text: string): Promise<Float32Array | null> {
         worker.removeEventListener('message', handler);
 
         if (event.data.type === 'embedding-result') {
-          // Convert array back to Float32Array
           resolve(new Float32Array(event.data.embedding));
         } else if (event.data.type === 'error') {
-          if (addLogEntry !== null) {
-            addLogEntry(`Failed to generate embedding: ${event.data.error}`, 'warning');
-          }
+          log(`Failed to generate embedding: ${event.data.error}`, 'warning');
           resolve(null);
         }
       };
 
       worker.addEventListener('message', handler);
-
-      const generateMessage: GenerateEmbeddingMessage = {
-        id,
-        type: 'generate-embedding',
-        text,
-      };
-
-      worker.postMessage(generateMessage);
+      worker.postMessage({ id, type: 'generate-embedding', text } as GenerateEmbeddingMessage);
     });
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-    if (addLogEntry !== null) {
-      addLogEntry(`Failed to generate embedding: ${errorMsg}`, 'warning');
-    }
+    log(`Failed to generate embedding: ${errorMsg}`, 'warning');
     return null;
   }
 }
@@ -983,39 +876,17 @@ async function findBestMatchingPattern(
   userPrompt: string,
   cachedPatterns: Array<CachedPattern>
 ): Promise<{ pattern: CachedPattern; similarity: number } | null> {
-  if (addLogEntry !== null) {
-    addLogEntry('Generating embedding for user prompt...', 'info');
-  }
-  
   const userEmbedding = await generateEmbedding(userPrompt);
   if (!userEmbedding) {
-    if (addLogEntry !== null) {
-      addLogEntry('Failed to generate user prompt embedding', 'warning');
-    }
+    log('Failed to generate user prompt embedding', 'warning');
     return null;
   }
 
-  if (addLogEntry !== null) {
-    addLogEntry(`Comparing against ${cachedPatterns.length} parameter set patterns...`, 'info');
-  }
-
-  // Pure semantic matching - find best match from 27 parameter set patterns
   let bestMatch: { pattern: CachedPattern; similarity: number } | null = null;
   let bestSimilarity = -1;
 
   for (const cached of cachedPatterns) {
-    if (addLogEntry !== null) {
-      addLogEntry(`[VECTOR COMPUTATION] Comparing against pattern: "${cached.pattern.substring(0, 80)}..."`, 'info');
-    }
-    
-    // Pure cosine similarity - no modifications, no string matching
     const similarity = cosineSimilarity(userEmbedding, cached.embedding);
-    
-    if (addLogEntry !== null) {
-      addLogEntry(`[RESULT] Similarity: ${similarity.toFixed(3)}`, 'info');
-    }
-    
-    // Track best match
     if (similarity > bestSimilarity) {
       bestSimilarity = similarity;
       bestMatch = { pattern: cached, similarity };
@@ -1023,16 +894,10 @@ async function findBestMatchingPattern(
   }
 
   if (bestMatch) {
-    if (addLogEntry !== null) {
-      addLogEntry(`[BEST MATCH] Selected pattern with similarity ${bestSimilarity.toFixed(3)}:`, 'info');
-      addLogEntry(`  "${bestMatch.pattern.pattern}"`, 'info');
-    }
+    log(`Best match: similarity ${bestSimilarity.toFixed(3)}`, 'info');
     return bestMatch;
   }
 
-  if (addLogEntry !== null) {
-    addLogEntry('✗ No matching pattern found', 'warning');
-  }
   return null;
 }
 
@@ -1043,114 +908,35 @@ async function findBestMatchingPattern(
  */
 async function initializeCommonPatterns(): Promise<void> {
   try {
-    if (addLogEntry !== null) {
-      addLogEntry('=== PATTERN CACHE INITIALIZATION ===', 'info');
-    }
-
-    // Use the 27 parameter set patterns with rich sensory descriptions
     const commonPatterns: Array<ParameterSetPattern> = PARAMETER_SET_PATTERNS;
-
-    // Check existing patterns and validate embeddings
     const existingPatterns = await loadCachedPatterns();
     const existingPatternMap = new Map<string, CachedPattern>();
     for (const existing of existingPatterns) {
       existingPatternMap.set(existing.pattern, existing);
     }
 
-    if (addLogEntry !== null) {
-      addLogEntry(`Found ${existingPatterns.length} existing patterns in cache`, 'info');
-    }
-
-    // Ensure embedding model is loaded before generating embeddings
-    if (addLogEntry !== null) {
-      addLogEntry('Loading embedding model for pattern initialization...', 'info');
-    }
     await loadEmbeddingModel();
-    
     if (!babylonChunksWorker) {
-      if (addLogEntry !== null) {
-        addLogEntry('✗ Embedding model failed to load - cannot generate embeddings', 'error');
-      }
+      log('Embedding model failed to load - cannot generate embeddings', 'error');
       return;
     }
 
-    let patternsInitialized = 0;
-    let patternsRegenerated = 0;
-    let patternsSkipped = 0;
-    let patternsFailed = 0;
-    let firstEmbeddingLogged = false;
-
-    // Generate embeddings and cache patterns
     for (const commonPattern of commonPatterns) {
       const existing = existingPatternMap.get(commonPattern.pattern);
-      
-      // Check if existing pattern has valid embedding
-      let needsRegeneration = true;
-      if (existing) {
-        if (existing.embedding && existing.embedding.length > 0) {
-          if (addLogEntry !== null) {
-            addLogEntry(`Pattern "${commonPattern.pattern}" already cached with ${existing.embedding.length}-dim embedding`, 'info');
-          }
-          needsRegeneration = false;
-          patternsSkipped++;
-        } else {
-          if (addLogEntry !== null) {
-            addLogEntry(`Pattern "${commonPattern.pattern}" exists but has invalid/empty embedding - regenerating...`, 'warning');
-          }
-          patternsRegenerated++;
-        }
-      } else {
-        if (addLogEntry !== null) {
-          addLogEntry(`Pattern "${commonPattern.pattern}" not found in cache - generating embedding...`, 'info');
-        }
-        patternsInitialized++;
-      }
+      const needsRegeneration = !existing || !existing.embedding || existing.embedding.length === 0;
 
       if (needsRegeneration) {
-        if (addLogEntry !== null) {
-          addLogEntry(`  → Generating embedding for: "${commonPattern.pattern}"`, 'info');
-        }
-        
         const embedding = await generateEmbedding(commonPattern.pattern);
         if (embedding && embedding.length > 0) {
-          if (addLogEntry !== null) {
-            addLogEntry(`  → Generated ${embedding.length}-dimensional embedding vector`, 'success');
-            
-            // Log first 10 float values of the first embedding created
-            if (!firstEmbeddingLogged) {
-              const firstTen = Array.from(embedding.slice(0, 10));
-              addLogEntry(`  → [FIRST EMBEDDING] First 10 float values: [${firstTen.map(v => v.toFixed(6)).join(', ')}]`, 'info');
-              firstEmbeddingLogged = true;
-            }
-          }
           await cachePattern(commonPattern.pattern, embedding, commonPattern.constraints);
-          
-          if (addLogEntry !== null) {
-            addLogEntry(`  → ✓ Cached pattern "${commonPattern.pattern}" with embedding`, 'success');
-          }
         } else {
-          patternsFailed++;
-          if (addLogEntry !== null) {
-            addLogEntry(`  → ✗ Failed to generate embedding for "${commonPattern.pattern}"`, 'error');
-          }
+          log(`Failed to generate embedding for "${commonPattern.pattern}"`, 'error');
         }
       }
-    }
-
-    if (addLogEntry !== null) {
-      addLogEntry(`=== PATTERN CACHE SUMMARY ===`, 'info');
-      addLogEntry(`  - Initialized: ${patternsInitialized}`, 'info');
-      addLogEntry(`  - Regenerated: ${patternsRegenerated}`, 'info');
-      addLogEntry(`  - Skipped (valid): ${patternsSkipped}`, 'info');
-      addLogEntry(`  - Failed: ${patternsFailed}`, patternsFailed > 0 ? 'error' : 'info');
-      addLogEntry(`=== END PATTERN CACHE INITIALIZATION ===`, 'info');
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-    if (addLogEntry !== null) {
-      addLogEntry(`✗ Failed to initialize common patterns: ${errorMsg}`, 'error');
-      addLogEntry(`=== END PATTERN CACHE INITIALIZATION (ERROR) ===`, 'error');
-    }
+    log(`Failed to initialize common patterns: ${errorMsg}`, 'error');
   }
 }
 
@@ -1202,9 +988,7 @@ async function loadQwenModel(onProgress?: (progress: number) => void): Promise<v
       };
 
       worker.addEventListener('message', handler);
-
-      const loadMessage: LoadTextGenMessage = { id, type: 'load-textgen' };
-      worker.postMessage(loadMessage);
+      worker.postMessage({ id, type: 'load-textgen' } as LoadTextGenMessage);
     });
 
     if (onProgress) {
@@ -1261,15 +1045,8 @@ async function generateLayoutDescription(prompt: string): Promise<string> {
       }
     };
 
-    worker.addEventListener('message', handler);
-
-    const generateMessage: GenerateLayoutMessage = {
-      id,
-      type: 'generate-layout',
-      prompt,
-    };
-
-    worker.postMessage(generateMessage);
+      worker.addEventListener('message', handler);
+      worker.postMessage({ id, type: 'generate-layout', prompt } as GenerateLayoutMessage);
   });
 }
 
@@ -1291,58 +1068,18 @@ async function parseLayoutConstraints(
     buildingSizeHint: 'medium',
   };
 
-  // Try semantic pattern matching first if prompt is provided
-  // Use the 27 parameter set patterns to find the best match
   if (originalPrompt) {
-    if (addLogEntry !== null) {
-      addLogEntry('=== VECTOR SIMILARITY SEARCH ===', 'info');
-      addLogEntry(`User prompt: "${originalPrompt}"`, 'info');
-      addLogEntry('Starting semantic pattern matching against 27 parameter set patterns...', 'info');
-    }
-    
     try {
       const cachedPatterns = await loadCachedPatterns();
-      
-      if (addLogEntry !== null) {
-        addLogEntry(`Loaded ${cachedPatterns.length} cached patterns from IndexedDB`, 'info');
-      }
-      
       if (cachedPatterns.length > 0) {
         const bestMatch = await findBestMatchingPattern(originalPrompt, cachedPatterns);
-        if (bestMatch) {
-          // Use constraints directly from the best matching parameter set pattern
-          const matchedConstraints = bestMatch.pattern.constraints;
-          if (matchedConstraints) {
-            // Merge matched constraints with defaults
-            result = {
-              ...result,
-              ...matchedConstraints,
-            };
-            if (addLogEntry !== null) {
-              addLogEntry(`✓ Using best matching parameter set pattern (similarity: ${bestMatch.similarity.toFixed(3)})`, 'success');
-            }
-          }
-        } else {
-          if (addLogEntry !== null) {
-            addLogEntry('✗ No matching parameter set pattern found', 'info');
-          }
+        if (bestMatch?.pattern.constraints) {
+          result = { ...result, ...bestMatch.pattern.constraints };
         }
-      } else {
-        if (addLogEntry !== null) {
-          addLogEntry('⚠ No cached patterns available for matching - patterns may still be initializing', 'warning');
-          addLogEntry('Pattern cache initialization runs in background on route load', 'info');
-        }
-      }
-      
-      if (addLogEntry !== null) {
-        addLogEntry('=== END VECTOR SIMILARITY SEARCH ===', 'info');
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      if (addLogEntry !== null) {
-        addLogEntry(`✗ Semantic pattern matching failed: ${errorMsg}`, 'error');
-        addLogEntry('=== END VECTOR SIMILARITY SEARCH (ERROR) ===', 'error');
-      }
+      log(`Semantic pattern matching failed: ${errorMsg}`, 'error');
     }
   }
 
@@ -1487,30 +1224,6 @@ async function parseLayoutConstraints(
     result.buildingSizeHint = sizeMatch[1];
   }
 
-  // Result already contains blended constraints from semantic matching
-  // Pure cosine similarity - no string matching!
-
-  // Log final parsed constraints summary
-  if (addLogEntry !== null) {
-    addLogEntry('Parsed constraints summary:', 'info');
-    addLogEntry(`  - buildingDensity: ${result.buildingDensity}`, 'info');
-    addLogEntry(`  - clustering: ${result.clustering}`, 'info');
-    addLogEntry(`  - grassRatio: ${result.grassRatio}`, 'info');
-    addLogEntry(`  - buildingSizeHint: ${result.buildingSizeHint}`, 'info');
-    if (result.buildingCount !== undefined) {
-      addLogEntry(`  - buildingCount: ${result.buildingCount} (specific request)`, 'info');
-    }
-    if (result.rings !== undefined) {
-      addLogEntry(`  - rings: ${result.rings}`, 'info');
-    }
-    if (result.excludeTileTypes && result.excludeTileTypes.length > 0) {
-      addLogEntry(`  - excludeTileTypes: ${result.excludeTileTypes.join(', ')}`, 'info');
-    }
-    if (result.primaryTileType) {
-      addLogEntry(`  - primaryTileType: ${result.primaryTileType}`, 'info');
-    }
-  }
-
   return result;
 }
 
@@ -1558,123 +1271,38 @@ function executeLayoutFunction(
   args: Record<string, string>,
   currentConstraints: LayoutConstraints
 ): LayoutConstraints {
-  if (addLogEntry !== null) {
-    addLogEntry(`Executing layout function: ${functionName}(${JSON.stringify(args)})`, 'info');
-  }
-
   const updatedConstraints: LayoutConstraints = { ...currentConstraints };
 
   if (functionName === 'set_voronoi_seeds') {
-    const forestStr = args.forest;
-    const waterStr = args.water;
-    const grassStr = args.grass;
-
-    if (forestStr && waterStr && grassStr) {
-      const forest = Number.parseInt(forestStr, 10);
-      const water = Number.parseInt(waterStr, 10);
-      const grass = Number.parseInt(grassStr, 10);
-
-      if (!Number.isNaN(forest) && !Number.isNaN(water) && !Number.isNaN(grass) && forest >= 0 && water >= 0 && grass >= 0) {
-        updatedConstraints.voronoiSeeds = { forest, water, grass };
-        if (addLogEntry !== null) {
-          addLogEntry(`Set Voronoi seeds: forest=${forest}, water=${water}, grass=${grass}`, 'success');
-        }
-      } else {
-        if (addLogEntry !== null) {
-          addLogEntry(`Invalid Voronoi seed values: forest=${forestStr}, water=${waterStr}, grass=${grassStr}`, 'warning');
-        }
-      }
-    } else {
-      if (addLogEntry !== null) {
-        addLogEntry(`Missing Voronoi seed parameters. Required: forest, water, grass`, 'warning');
-      }
+    const forest = Number.parseInt(args.forest ?? '0', 10);
+    const water = Number.parseInt(args.water ?? '0', 10);
+    const grass = Number.parseInt(args.grass ?? '0', 10);
+    if (!Number.isNaN(forest) && !Number.isNaN(water) && !Number.isNaN(grass) && forest >= 0 && water >= 0 && grass >= 0) {
+      updatedConstraints.voronoiSeeds = { forest, water, grass };
     }
   } else if (functionName === 'set_road_density') {
-    const densityStr = args.density;
-    if (densityStr) {
-      const density = parseFloat(densityStr);
-      if (!Number.isNaN(density) && density >= 0 && density <= 1) {
-        updatedConstraints.roadDensity = density;
-        if (addLogEntry !== null) {
-          addLogEntry(`Set road density: ${density}`, 'success');
-        }
-      } else {
-        if (addLogEntry !== null) {
-          addLogEntry(`Invalid road density value: ${densityStr}. Must be between 0.0 and 1.0`, 'warning');
-        }
-      }
-    } else {
-      if (addLogEntry !== null) {
-        addLogEntry(`Missing road density parameter`, 'warning');
-      }
+    const density = parseFloat(args.density ?? '0');
+    if (!Number.isNaN(density) && density >= 0 && density <= 1) {
+      updatedConstraints.roadDensity = density;
     }
   } else if (functionName === 'set_grid_size') {
-    const ringsStr = args.rings;
-    if (ringsStr) {
-      const rings = Number.parseInt(ringsStr, 10);
-      if (!Number.isNaN(rings) && rings >= 0 && rings <= 50) {
-        updatedConstraints.rings = rings;
-        if (addLogEntry !== null) {
-          addLogEntry(`Set grid size (rings): ${rings}`, 'success');
-        }
-      } else {
-        if (addLogEntry !== null) {
-          addLogEntry(`Invalid rings value: ${ringsStr}. Must be between 0 and 50`, 'warning');
-        }
-      }
-    }
-    // Legacy support: also check for maxLayer
-    const maxLayerStr = args.maxLayer;
-    if (maxLayerStr && updatedConstraints.rings === undefined) {
-      const maxLayer = Number.parseInt(maxLayerStr, 10);
-      if (!Number.isNaN(maxLayer) && maxLayer > 0 && maxLayer <= 50) {
-        updatedConstraints.rings = maxLayer;
-        if (addLogEntry !== null) {
-          addLogEntry(`Set grid size (maxLayer, legacy): ${maxLayer}`, 'success');
-        }
-      }
+    const rings = Number.parseInt(args.rings ?? args.maxLayer ?? '0', 10);
+    if (!Number.isNaN(rings) && rings >= 0 && rings <= 50) {
+      updatedConstraints.rings = rings;
     }
   } else if (functionName === 'set_building_rules') {
-    const minAdjacentRoadsStr = args.minAdjacentRoads;
-    const minSizeStr = args.minSize;
-    const maxSizeStr = args.maxSize;
-
     const buildingRules: BuildingRules = {};
-
-    if (minAdjacentRoadsStr) {
-      const minAdjacentRoads = Number.parseInt(minAdjacentRoadsStr, 10);
-      if (!Number.isNaN(minAdjacentRoads) && minAdjacentRoads >= 0) {
-        buildingRules.minAdjacentRoads = minAdjacentRoads;
-        if (addLogEntry !== null) {
-          addLogEntry(`Set building minAdjacentRoads: ${minAdjacentRoads}`, 'info');
-        }
-      }
+    const minAdjacentRoads = Number.parseInt(args.minAdjacentRoads ?? '0', 10);
+    if (!Number.isNaN(minAdjacentRoads) && minAdjacentRoads >= 0) {
+      buildingRules.minAdjacentRoads = minAdjacentRoads;
     }
-
-    if (minSizeStr && maxSizeStr) {
-      const minSize = Number.parseInt(minSizeStr, 10);
-      const maxSize = Number.parseInt(maxSizeStr, 10);
-      if (!Number.isNaN(minSize) && !Number.isNaN(maxSize) && minSize > 0 && maxSize >= minSize) {
-        buildingRules.sizeConstraints = { min: minSize, max: maxSize };
-        if (addLogEntry !== null) {
-          addLogEntry(`Set building size constraints: min=${minSize}, max=${maxSize}`, 'info');
-        }
-      }
+    const minSize = Number.parseInt(args.minSize ?? '0', 10);
+    const maxSize = Number.parseInt(args.maxSize ?? '0', 10);
+    if (!Number.isNaN(minSize) && !Number.isNaN(maxSize) && minSize > 0 && maxSize >= minSize) {
+      buildingRules.sizeConstraints = { min: minSize, max: maxSize };
     }
-
     if (Object.keys(buildingRules).length > 0) {
       updatedConstraints.buildingRules = buildingRules;
-      if (addLogEntry !== null) {
-        addLogEntry(`Set building rules: ${JSON.stringify(buildingRules)}`, 'success');
-      }
-    } else {
-      if (addLogEntry !== null) {
-        addLogEntry(`No valid building rules provided`, 'warning');
-      }
-    }
-  } else {
-    if (addLogEntry !== null) {
-      addLogEntry(`Unknown layout function: ${functionName}`, 'warning');
     }
   }
 
@@ -1727,11 +1355,6 @@ function parseAndExecuteFunctionCalls(
     // Ignore JSON parse errors
   }
 
-  if (addLogEntry !== null && functionCalls.length > 0) {
-    addLogEntry(`Found ${functionCalls.length} function call(s) in output`, 'info');
-  }
-
-  // Execute all function calls
   for (const functionCall of functionCalls) {
     const args = extractFunctionArguments(functionCall.arguments);
     currentConstraints = executeLayoutFunction(functionCall.function, args, currentConstraints);
@@ -2435,33 +2058,16 @@ function constraintsToPreConstraints(
   constraints: LayoutConstraints
 ): Array<{ q: number; r: number; tileType: TileType }> {
   if (!WASM_BABYLON_CHUNKS.wasmModule) {
-    if (addLogEntry !== null) {
-      addLogEntry('WASM module not available for Voronoi generation', 'error');
-    }
+    log('WASM module not available for Voronoi generation', 'error');
     return [];
   }
 
-  // Use hexagon pattern - use rings from constraints or default to currentRings (default 5)
   const rings = constraints.rings ?? currentRings;
-  // Update global currentRings for rendering
   currentRings = rings;
   
-  if (addLogEntry !== null) {
-    addLogEntry(`Using rings: ${rings} (expected tiles: ${3 * rings * (rings + 1) + 1})`, 'info');
-  }
-  
-  // Center at (0, 0) for simplicity - hexagon centered at origin
   const centerQ = 0;
   const centerR = 0;
-
-  // Generate hexagon grid for reference
   const hexGrid = HEX_UTILS.generateHexGrid(rings, centerQ, centerR);
-  const totalTiles = hexGrid.length;
-  const expectedTiles = 3 * rings * (rings + 1) + 1;
-
-  if (addLogEntry !== null) {
-    addLogEntry(`Hexagon Grid Generation: Generated ${hexGrid.length} tiles (expected: ${expectedTiles} for ${rings} rings)`, 'info');
-  }
 
   // Step 1: Generate Voronoi regions for forest, water, and grass using WASM
   // Use voronoiSeeds from constraints or default values
@@ -2474,34 +2080,19 @@ function constraintsToPreConstraints(
     grass: baseVoronoiSeeds.grass,
   };
   
-  // Apply exclusions - set excluded tile type seeds to 0
   const excludeTypes = constraints.excludeTileTypes ?? [];
   if (excludeTypes.includes('forest')) {
     voronoiSeeds.forest = 0;
-    if (addLogEntry !== null) {
-      addLogEntry('Excluding forest: setting forest seeds to 0', 'info');
-    }
   }
   if (excludeTypes.includes('water')) {
     voronoiSeeds.water = 0;
-    if (addLogEntry !== null) {
-      addLogEntry('Excluding water: setting water seeds to 0', 'info');
-    }
   }
   if (excludeTypes.includes('grass')) {
     voronoiSeeds.grass = 0;
-    if (addLogEntry !== null) {
-      addLogEntry('Excluding grass: setting grass seeds to 0', 'info');
-    }
   }
 
-  // Apply primary tile type - increase seeds for primary type, decrease others
   const primaryTileType = constraints.primaryTileType;
   if (primaryTileType) {
-    if (addLogEntry !== null) {
-      addLogEntry(`Primary tile type: ${primaryTileType} - adjusting Voronoi seeds`, 'info');
-    }
-    // Increase primary type seeds, decrease others proportionally
     if (primaryTileType === 'forest') {
       voronoiSeeds.forest = Math.max(8, voronoiSeeds.forest * 2);
       voronoiSeeds.water = Math.max(1, Math.floor(voronoiSeeds.water * 0.5));
@@ -2514,9 +2105,6 @@ function constraintsToPreConstraints(
       voronoiSeeds.grass = Math.max(10, voronoiSeeds.grass * 2);
       voronoiSeeds.forest = Math.max(1, Math.floor(voronoiSeeds.forest * 0.5));
       voronoiSeeds.water = Math.max(1, Math.floor(voronoiSeeds.water * 0.5));
-    }
-    if (addLogEntry !== null) {
-      addLogEntry(`Adjusted seeds: forest=${voronoiSeeds.forest}, water=${voronoiSeeds.water}, grass=${voronoiSeeds.grass}`, 'info');
     }
   }
 
@@ -2540,91 +2128,40 @@ function constraintsToPreConstraints(
       grassSeeds
     );
     
-    // Log the actual result type and value for debugging
-    if (addLogEntry !== null) {
-      addLogEntry(`WASM generate_voronoi_regions returned: type=${typeof result}, value=${String(result).substring(0, 100)}`, 'info');
-    }
-    
     voronoiJson = typeof result === 'string' ? result : '[]';
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-    if (addLogEntry !== null) {
-      addLogEntry(`Error calling generate_voronoi_regions: ${errorMsg}`, 'error');
-      if (error instanceof Error && error.stack) {
-        addLogEntry(`Stack: ${error.stack}`, 'error');
-      }
-    }
+    log(`Error calling generate_voronoi_regions: ${errorMsg}`, 'error');
     voronoiJson = '[]';
   }
 
-  // Debug: Log raw JSON for troubleshooting
-  if (addLogEntry !== null) {
-    const jsonPreview = voronoiJson.length > 200 ? `${voronoiJson.substring(0, 200)}...` : voronoiJson;
-    addLogEntry(`Voronoi JSON length: ${voronoiJson.length}, preview: ${jsonPreview}`, 'info');
-  }
-
-  // Parse Voronoi regions from JSON
   const voronoiConstraints: Array<{ q: number; r: number; tileType: TileType }> = [];
   try {
     const parsed: unknown = JSON.parse(voronoiJson);
     if (Array.isArray(parsed)) {
       for (const item of parsed) {
         if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
-          // Use direct property access with proper type narrowing
-          // Check if properties exist and have correct types
           if ('q' in item && 'r' in item && 'tileType' in item) {
-            // Access properties using Object.getOwnPropertyDescriptor for type safety
-            const qDesc = Object.getOwnPropertyDescriptor(item, 'q');
-            const rDesc = Object.getOwnPropertyDescriptor(item, 'r');
-            const tileTypeDesc = Object.getOwnPropertyDescriptor(item, 'tileType');
-            
-            if (qDesc && 'value' in qDesc && rDesc && 'value' in rDesc && tileTypeDesc && 'value' in tileTypeDesc) {
-              // TypeScript needs explicit type checks before assignment
-              const qValueUnknown: unknown = qDesc.value;
-              const rValueUnknown: unknown = rDesc.value;
-              const tileTypeValueUnknown: unknown = tileTypeDesc.value;
-
-              if (
-                typeof qValueUnknown === 'number' &&
-                typeof rValueUnknown === 'number' &&
-                typeof tileTypeValueUnknown === 'number'
-              ) {
-                // Now we know they're numbers, safe to use
-                const qValue: number = qValueUnknown;
-                const rValue: number = rValueUnknown;
-                const tileTypeValue: number = tileTypeValueUnknown;
-                
-                const tileType = tileTypeFromNumber(tileTypeValue);
-                if (tileType) {
-                  voronoiConstraints.push({ q: qValue, r: rValue, tileType });
-                }
+            const qValue = item.q;
+            const rValue = item.r;
+            const tileTypeValue = item.tileType;
+            if (
+              typeof qValue === 'number' &&
+              typeof rValue === 'number' &&
+              typeof tileTypeValue === 'number'
+            ) {
+              const tileType = tileTypeFromNumber(tileTypeValue);
+              if (tileType) {
+                voronoiConstraints.push({ q: qValue, r: rValue, tileType });
               }
             }
           }
         }
       }
-    } else {
-      if (addLogEntry !== null) {
-        addLogEntry(`Voronoi JSON is not an array. Type: ${typeof parsed}`, 'warning');
-      }
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-    if (addLogEntry !== null) {
-      addLogEntry(`Failed to parse Voronoi regions: ${errorMsg}. JSON: ${voronoiJson.substring(0, 500)}`, 'warning');
-    }
-  }
-
-  if (addLogEntry !== null) {
-    const forestCount = voronoiConstraints.filter((pc) => pc.tileType.type === 'forest').length;
-    const waterCount = voronoiConstraints.filter((pc) => pc.tileType.type === 'water').length;
-    const grassCount = voronoiConstraints.filter((pc) => pc.tileType.type === 'grass').length;
-    addLogEntry(`Voronoi regions: ${forestCount} forest, ${waterCount} water, ${grassCount} grass`, 'info');
-    
-    // Warn if regions are empty but seeds were requested
-    if (forestCount === 0 && waterCount === 0 && grassCount === 0 && (forestSeeds > 0 || waterSeeds > 0 || grassSeeds > 0)) {
-      addLogEntry(`Warning: No Voronoi regions generated despite requesting ${forestSeeds} forest, ${waterSeeds} water, ${grassSeeds} grass seeds`, 'warning');
-    }
+    log(`Failed to parse Voronoi regions: ${errorMsg}`, 'warning');
   }
 
   // Step 2: Create a set of occupied hexes from Voronoi regions
@@ -2636,10 +2173,6 @@ function constraintsToPreConstraints(
     }
   }
 
-  if (addLogEntry !== null) {
-    const waterCount = voronoiConstraints.filter((pc) => pc.tileType.type === 'water').length;
-    addLogEntry(`Occupied hexes (water only): ${occupiedHexes.size} (${waterCount} water tiles)`, 'info');
-  }
 
   // Step 3: Generate roads on valid terrain (grass/forest only) using growing tree algorithm
   // This ensures all roads form a single connected component
@@ -2658,17 +2191,8 @@ function constraintsToPreConstraints(
     }
   }
 
-  if (addLogEntry !== null) {
-    addLogEntry(`Valid terrain for roads/buildings: ${validTerrainHexes.length} hexes (grass/forest only)`, 'info');
-  }
-
-  // Calculate target road count using roadDensity from constraints or default 0.1 (10%)
   const roadDensity = constraints.roadDensity ?? 0.1;
   const targetRoadCount = Math.floor(validTerrainHexes.length * roadDensity);
-  
-  if (addLogEntry !== null) {
-    addLogEntry(`Road generation: density=${roadDensity} (${Math.floor(roadDensity * 100)}%), target count=${targetRoadCount}`, 'info');
-  }
 
   // Create set of valid terrain for A* pathfinding
   const validTerrainSet = new Set<string>();
@@ -2704,19 +2228,9 @@ function constraintsToPreConstraints(
 
   const seedPoints = availableForSeeds.slice(0, Math.min(seedCount, availableForSeeds.length));
 
-  if (addLogEntry !== null) {
-    addLogEntry(`Selected ${seedPoints.length} seed points for road network`, 'info');
-  }
-
-  // Step 3b & 3c: Generate road network using true growing tree algorithm (WASM)
-  // This replaces the previous flood-fill approach with a proper tree algorithm:
-  // 1. Connects seed points using A* paths
-  // 2. Expands by finding nearest unconnected valid terrain to any connected road,
-  //    building A* path, and adding path. Continues until target count reached.
   let roadNetwork: Array<HexCoord> = [];
   
   if (WASM_BABYLON_CHUNKS.wasmModule) {
-    // Prepare inputs for WASM function
     const seedsJson = JSON.stringify(seedPoints);
     const validTerrainJson = JSON.stringify(validTerrainHexes);
     const occupiedArray: Array<HexCoord> = [];
@@ -2732,10 +2246,6 @@ function constraintsToPreConstraints(
     }
     const occupiedJson = JSON.stringify(occupiedArray);
     
-    if (addLogEntry !== null) {
-      addLogEntry(`Generating road network using WASM growing tree algorithm...`, 'info');
-    }
-    
     const result = WASM_BABYLON_CHUNKS.wasmModule.generate_road_network_growing_tree(
       seedsJson,
       validTerrainJson,
@@ -2743,37 +2253,16 @@ function constraintsToPreConstraints(
       targetRoadCount
     );
     
-    // Parse and validate result using utility function
     const parsedRoads = parseHexCoordArray(result);
     if (parsedRoads) {
       roadNetwork = parsedRoads;
-      
-      // Update occupiedHexes with generated roads
       for (const road of roadNetwork) {
         occupiedHexes.add(`${road.q},${road.r}`);
       }
-      
-      if (addLogEntry !== null) {
-        addLogEntry(`Generated ${roadNetwork.length} roads using WASM growing tree algorithm`, 'info');
-      }
-    } else {
-      if (addLogEntry !== null) {
-        addLogEntry(`WASM growing tree returned invalid result, falling back to TypeScript implementation`, 'warning');
-      }
-      // Fall through to TypeScript fallback
-      roadNetwork = [];
     }
   }
   
-  // TypeScript fallback (should rarely be needed)
   if (roadNetwork.length === 0) {
-    if (addLogEntry !== null) {
-      if (WASM_BABYLON_CHUNKS.wasmModule) {
-        addLogEntry(`Using TypeScript fallback for road generation (WASM returned empty result)`, 'info');
-      } else {
-        addLogEntry(`Using TypeScript fallback for road generation (WASM not available)`, 'info');
-      }
-    }
     
     // Start with first seed point
     if (seedPoints.length > 0) {
@@ -2817,22 +2306,12 @@ function constraintsToPreConstraints(
           roadNetwork.push(seed);
           occupiedHexes.add(seedKey);
         }
-      } else {
-        // If no path found, skip this seed to maintain connectivity
-        if (addLogEntry !== null) {
-          addLogEntry(`Skipping seed at (${seed.q}, ${seed.r}) - no path found to network`, 'warning');
-        }
       }
     }
 
-    // Expand network to reach target density (flood fill approach for fallback)
     while (roadNetwork.length < targetRoadCount) {
       const adjacentHexes = getAdjacentValidTerrain(roadNetwork, validTerrainHexes, occupiedHexes);
-      
       if (adjacentHexes.length === 0) {
-        if (addLogEntry !== null) {
-          addLogEntry(`No more adjacent valid terrain, stopping road expansion at ${roadNetwork.length} roads`, 'info');
-        }
         break;
       }
 
@@ -2862,29 +2341,12 @@ function constraintsToPreConstraints(
     roadConstraints.push({ q: road.q, r: road.r, tileType: { type: 'road' } });
   }
 
-  // Validate road connectivity (should always pass with growing tree algorithm)
   const roadsJson = JSON.stringify(roadConstraints.map((rc) => ({ q: rc.q, r: rc.r })));
-  if (addLogEntry !== null) {
-    addLogEntry(`Validating ${roadConstraints.length} roads for connectivity...`, 'info');
-  }
-  let roadsConnected = false;
   if (WASM_BABYLON_CHUNKS.wasmModule) {
-    roadsConnected = WASM_BABYLON_CHUNKS.wasmModule.validate_road_connectivity(roadsJson);
-    if (addLogEntry !== null) {
-      if (roadsConnected) {
-        addLogEntry(`Road connectivity validation PASSED: All ${roadConstraints.length} roads are connected`, 'success');
-      } else {
-        addLogEntry(`Road connectivity validation FAILED: This should not happen with growing tree algorithm!`, 'error');
-      }
+    const roadsConnected = WASM_BABYLON_CHUNKS.wasmModule.validate_road_connectivity(roadsJson);
+    if (!roadsConnected) {
+      log('Road connectivity validation failed', 'error');
     }
-  } else {
-    if (addLogEntry !== null) {
-      addLogEntry('WASM module not available for road connectivity validation', 'error');
-    }
-  }
-
-  if (addLogEntry !== null) {
-    addLogEntry(`Placed ${roadConstraints.length} roads (target: ${targetRoadCount}) using growing tree algorithm`, 'info');
   }
 
   // Step 4: Generate buildings on valid terrain (grass/forest only) adjacent to roads
@@ -2918,9 +2380,6 @@ function constraintsToPreConstraints(
     }
   }
 
-  if (addLogEntry !== null) {
-    addLogEntry(`Available building locations (adjacent to ${minAdjacentRoads}+ roads): ${availableBuildingHexes.length} hexes`, 'info');
-  }
 
   // Shuffle available building hexes for random placement
   for (let i = availableBuildingHexes.length - 1; i > 0; i--) {
@@ -2932,25 +2391,13 @@ function constraintsToPreConstraints(
     }
   }
 
-  // Place buildings - use exact count if specified, otherwise use density-based calculation
   let targetBuildingCount: number;
   if (constraints.buildingCount !== undefined) {
     targetBuildingCount = constraints.buildingCount;
-    if (addLogEntry !== null) {
-      addLogEntry(`Using exact building count: ${targetBuildingCount} (from user request)`, 'info');
-    }
   } else {
     const buildingDensity = constraints.buildingDensity;
-    let buildingRatio = 0.1;
-    if (buildingDensity === 'sparse') {
-      buildingRatio = 0.05;
-    } else if (buildingDensity === 'dense') {
-      buildingRatio = 0.15;
-    }
+    const buildingRatio = buildingDensity === 'sparse' ? 0.05 : buildingDensity === 'dense' ? 0.15 : 0.1;
     targetBuildingCount = Math.floor(availableBuildingHexes.length * buildingRatio);
-    if (addLogEntry !== null) {
-      addLogEntry(`Using density-based building count: ${targetBuildingCount} (${Math.floor(buildingRatio * 100)}% of ${availableBuildingHexes.length} available)`, 'info');
-    }
   }
 
   // Limit to available hexes
@@ -2974,9 +2421,6 @@ function constraintsToPreConstraints(
     }
   }
 
-  if (addLogEntry !== null) {
-    addLogEntry(`Placed ${placedBuildings} buildings (${buildingCount} attempted, ${availableBuildingHexes.length} available)`, 'info');
-  }
 
   // Step 5: Fill remaining tiles with grass
   const allConstraints = [...voronoiConstraints, ...buildingConstraints, ...roadConstraints];
@@ -2997,15 +2441,6 @@ function constraintsToPreConstraints(
   const preConstraints = [...voronoiConstraints, ...buildingConstraints, ...roadConstraints, ...grassConstraints];
 
   // Debug: Log final pre-constraints count
-  if (addLogEntry !== null) {
-    const grassCount = preConstraints.filter((pc) => pc.tileType.type === 'grass').length;
-    const buildingCount = preConstraints.filter((pc) => pc.tileType.type === 'building').length;
-    const roadCount = preConstraints.filter((pc) => pc.tileType.type === 'road').length;
-    const forestCount = preConstraints.filter((pc) => pc.tileType.type === 'forest').length;
-    const waterCount = preConstraints.filter((pc) => pc.tileType.type === 'water').length;
-    addLogEntry(`Pre-Constraints: ${preConstraints.length} total (${grassCount} grass, ${buildingCount} building, ${roadCount} road, ${forestCount} forest, ${waterCount} water)`, 'info');
-    addLogEntry(`Pre-Constraints: Expected ${totalTiles} hexagon tiles, got ${preConstraints.length} pre-constraints`, 'info');
-  }
 
   return preConstraints;
 }
@@ -3070,157 +2505,59 @@ async function generateLayoutFromText(
   const thinkingStartTime = Date.now();
   const minDisplayTime = 2000; // 2 seconds minimum
 
-  // Store the prompt for later comparison with stats
-  lastUserPrompt = prompt;
 
   try {
-    // Show thinking animation immediately
     await showThinkingAnimation();
 
-    if (addLogEntry !== null) {
-      addLogEntry(`Starting layout generation from text prompt: "${prompt}"`, 'info');
-    }
     if (modelStatusEl) {
       modelStatusEl.textContent = 'Loading Qwen model...';
-    }
-
-    if (addLogEntry !== null) {
-      addLogEntry('Loading Qwen text generation model...', 'info');
     }
 
     await loadQwenModel((progress) => {
       if (modelStatusEl) {
         modelStatusEl.textContent = `Loading model: ${Math.floor(progress * 100)}%`;
       }
-      if (addLogEntry !== null && Math.floor(progress * 100) % 25 === 0) {
-        addLogEntry(`Model loading progress: ${Math.floor(progress * 100)}%`, 'info');
-      }
     });
-
-    if (addLogEntry !== null) {
-      addLogEntry('Qwen model loaded successfully', 'success');
-    }
 
     if (modelStatusEl) {
       modelStatusEl.textContent = 'Generating 3D grid layout...';
     }
 
-    if (addLogEntry !== null) {
-      addLogEntry('Sending prompt to Qwen model for layout description generation...', 'info');
-    }
-
     const layoutDescription = await generateLayoutDescription(prompt);
-
-    if (addLogEntry !== null) {
-      addLogEntry(`Received layout description from Qwen (${layoutDescription.length} characters)`, 'info');
-      addLogEntry(`Raw layout description: ${layoutDescription.substring(0, 200)}${layoutDescription.length > 200 ? '...' : ''}`, 'info');
-    }
 
     if (modelStatusEl) {
       modelStatusEl.textContent = 'Parsing constraints...';
     }
 
-    if (addLogEntry !== null) {
-      addLogEntry('Parsing layout constraints from Qwen output...', 'info');
-    }
-
-    // Parse base constraints from JSON output, also extracting from original prompt
     let constraints = await parseLayoutConstraints(layoutDescription, prompt);
-
-    if (addLogEntry !== null) {
-      addLogEntry(`Parsed base constraints: buildingDensity=${constraints.buildingDensity}, clustering=${constraints.clustering}, grassRatio=${constraints.grassRatio}, buildingSizeHint=${constraints.buildingSizeHint}`, 'info');
-    }
-
-    // Check for function calls and execute them
-    if (addLogEntry !== null) {
-      addLogEntry('Checking for function calls in output...', 'info');
-    }
     constraints = parseAndExecuteFunctionCalls(layoutDescription, constraints);
-
-    if (addLogEntry !== null) {
-      addLogEntry('Final constraint summary:', 'info');
-      addLogEntry(`  - buildingDensity: ${constraints.buildingDensity}`, 'info');
-      addLogEntry(`  - clustering: ${constraints.clustering}`, 'info');
-      addLogEntry(`  - grassRatio: ${constraints.grassRatio}`, 'info');
-      addLogEntry(`  - buildingSizeHint: ${constraints.buildingSizeHint}`, 'info');
-      if (constraints.voronoiSeeds) {
-        addLogEntry(`  - voronoiSeeds: forest=${constraints.voronoiSeeds.forest}, water=${constraints.voronoiSeeds.water}, grass=${constraints.voronoiSeeds.grass}`, 'info');
-      }
-      if (constraints.roadDensity !== undefined) {
-        addLogEntry(`  - roadDensity: ${constraints.roadDensity} (${Math.floor(constraints.roadDensity * 100)}%)`, 'info');
-      }
-      if (constraints.rings !== undefined) {
-        addLogEntry(`  - rings: ${constraints.rings}`, 'info');
-      }
-      if (constraints.buildingRules) {
-        addLogEntry(`  - buildingRules: ${JSON.stringify(constraints.buildingRules)}`, 'info');
-      }
-    }
 
     if (modelStatusEl) {
       modelStatusEl.textContent = 'Applying constraints...';
     }
 
-    if (addLogEntry !== null) {
-      addLogEntry('Clearing existing pre-constraints...', 'info');
-    }
-
     WASM_BABYLON_CHUNKS.wasmModule.clear_pre_constraints();
-
-    if (addLogEntry !== null) {
-      addLogEntry('Converting constraints to pre-constraints...', 'info');
-    }
-
     const preConstraints = constraintsToPreConstraints(constraints);
 
-    if (addLogEntry !== null) {
-      addLogEntry(`Generated ${preConstraints.length} pre-constraints, setting them in WASM...`, 'info');
-    }
-
-    // Set pre-constraints using hex coordinates directly (no conversion needed)
-    let setCount = 0;
     for (const preConstraint of preConstraints) {
       const tileNum = tileTypeToNumber(preConstraint.tileType);
-      const success = WASM_BABYLON_CHUNKS.wasmModule.set_pre_constraint(preConstraint.q, preConstraint.r, tileNum);
-      if (success) {
-        setCount += 1;
-      }
-    }
-
-    if (addLogEntry !== null) {
-      addLogEntry(`Successfully set ${setCount} pre-constraints in WASM`, 'success');
+      WASM_BABYLON_CHUNKS.wasmModule.set_pre_constraint(preConstraint.q, preConstraint.r, tileNum);
     }
 
     if (modelStatusEl) {
       modelStatusEl.textContent = 'Generating layout...';
     }
 
-    if (addLogEntry !== null) {
-      addLogEntry('Calling WASM generate_layout() to apply WFC algorithm...', 'info');
-    }
-
     WASM_BABYLON_CHUNKS.wasmModule.generate_layout();
-
-    if (addLogEntry !== null) {
-      addLogEntry('WFC layout generation completed', 'success');
-    }
 
     if (modelStatusEl) {
       modelStatusEl.textContent = 'Rendering...';
-    }
-
-    if (addLogEntry !== null) {
-      addLogEntry('Rendering 3D grid visualization...', 'info');
     }
 
     renderGrid(constraints);
 
     if (modelStatusEl) {
       modelStatusEl.textContent = 'Ready';
-    }
-
-    if (addLogEntry !== null) {
-      addLogEntry('Layout generation and rendering completed successfully', 'success');
     }
 
     // Hide thinking animation with minimum display time
@@ -3247,12 +2584,7 @@ async function generateLayoutFromText(
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-    if (addLogEntry !== null) {
-      addLogEntry(`Error during layout generation: ${errorMsg}`, 'error');
-      if (error instanceof Error && error.stack) {
-        addLogEntry(`Stack trace: ${error.stack}`, 'error');
-      }
-    }
+    log(`Error during layout generation: ${errorMsg}`, 'error');
     if (errorEl) {
       errorEl.textContent = `Error generating layout: ${errorMsg}`;
     }
@@ -3517,15 +2849,9 @@ export const init = async (): Promise<void> => {
     // Store the single base mesh (no clones - only instancing)
     baseMeshes.set('base', baseMesh);
     
-    if (addLogEntry !== null) {
-      addLogEntry(`Hex tile model loaded (hexSize: ${TILE_CONFIG.hexSize.toFixed(3)}m, using actual model dimensions ${TILE_CONFIG.modelWidth}m × ${TILE_CONFIG.modelDepth}m, using instancing only)`, 'success');
-      addLogEntry(`Base mesh stored: name=${baseMesh.name}, vertices=${baseMesh.getTotalVertices()}, isVisible=${baseMesh.isVisible}`, 'info');
-    }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-    if (addLogEntry !== null) {
-      addLogEntry(`Failed to load hex tile model: ${errorMsg}`, 'error');
-    }
+    log(`Failed to load hex tile model: ${errorMsg}`, 'error');
     if (errorEl) {
       errorEl.textContent = `Failed to load hex tile model: ${errorMsg}`;
     }
@@ -3536,130 +2862,30 @@ export const init = async (): Promise<void> => {
   // Thin instances are managed by the base mesh itself
   
   /**
-   * Get statistics for hexagon tiles only
-   * 
-   * This function queries WASM for each hexagon tile and counts tile types.
-   * Uses hash map storage, so no bounds checking needed.
-   * 
-   * @param rings - Number of rings (distance from center)
-   * @param centerQ - Center q coordinate (axial)
-   * @param centerR - Center r coordinate (axial)
-   * @returns Stats object with tile counts, or null if WASM module unavailable
-   */
-  const getHexagonStats = (
-    rings: number,
-    centerQ: number,
-    centerR: number
-  ): {
-    grass: number;
-    building: number;
-    road: number;
-    forest: number;
-    water: number;
-    total: number;
-  } | null => {
-    if (!WASM_BABYLON_CHUNKS.wasmModule) {
-      return null;
-    }
-    
-    // Generate hexagon grid
-    const hexGrid = HEX_UTILS.generateHexGrid(rings, centerQ, centerR);
-    
-    // Initialize counters
-    let grass = 0;
-    let building = 0;
-    let road = 0;
-    let forest = 0;
-    let water = 0;
-    
-    // Query each hexagon tile from WASM
-    for (const hex of hexGrid) {
-      const getTileAt = WASM_BABYLON_CHUNKS.wasmModule.get_tile_at.bind(WASM_BABYLON_CHUNKS.wasmModule);
-      const tileNum = getTileAt(hex.q, hex.r);
-      const tileType = tileTypeFromNumber(tileNum);
-      
-      if (tileType) {
-        switch (tileType.type) {
-          case 'grass':
-            grass += 1;
-            break;
-          case 'building':
-            building += 1;
-            break;
-          case 'road':
-            road += 1;
-            break;
-          case 'forest':
-            forest += 1;
-            break;
-          case 'water':
-            water += 1;
-            break;
-        }
-      }
-    }
-    
-    const total = grass + building + road + forest + water;
-    
-    return {
-      grass,
-      building,
-      road,
-      forest,
-      water,
-      total,
-    };
-  };
-  
-  /**
    * Render the WFC grid
-   * 
-   * **Learning Point**: This function:
-   * 1. Clears existing instances
-   * 2. Generates new layout from WASM
-   * 3. Creates instanced meshes for each tile
-   * 4. Positions instances based on grid coordinates
    */
   const renderGrid = (constraints?: LayoutConstraints): void => {
-    // Clear existing thin instances
     const baseMeshForCleanup = baseMeshes.get('base');
     if (baseMeshForCleanup) {
-      const previousCount = baseMeshForCleanup.thinInstanceCount;
       baseMeshForCleanup.thinInstanceCount = 0;
-      if (addLogEntry !== null) {
-        addLogEntry(`Cleared previous thin instances: ${previousCount} → 0`, 'info');
-      }
     }
     
     if (!WASM_BABYLON_CHUNKS.wasmModule) {
       return;
     }
     
-    // Use provided constraints or defaults
-    // If constraints are provided, they were already applied in generateLayoutFromText
-    // Only regenerate pre-constraints if no constraints provided (standalone render)
     const constraintsToUse = constraints ?? getDefaultConstraints();
     
-    // Only clear and regenerate pre-constraints if this is a standalone render
-    // (not called from generateLayoutFromText which already set them)
     if (!constraints) {
-      // Set default constraints if none are set
-      // Clear existing pre-constraints and set new ones
       WASM_BABYLON_CHUNKS.wasmModule.clear_pre_constraints();
-      
       const preConstraints = constraintsToPreConstraints(constraintsToUse);
-      
-      // Set pre-constraints using hex coordinates directly (no conversion needed)
       for (const preConstraint of preConstraints) {
         const tileNum = tileTypeToNumber(preConstraint.tileType);
         WASM_BABYLON_CHUNKS.wasmModule.set_pre_constraint(preConstraint.q, preConstraint.r, tileNum);
       }
     }
     
-    // Always call generate_layout() to ensure grid is populated before rendering and stats
-    // This is safe even if called multiple times - it will apply pre-constraints to grid
-    const generateLayout = WASM_BABYLON_CHUNKS.wasmModule.generate_layout.bind(WASM_BABYLON_CHUNKS.wasmModule);
-    generateLayout();
+    WASM_BABYLON_CHUNKS.wasmModule.generate_layout();
     
     // Create instances for each hex tile - render all hexagon pattern tiles
     // Layer-based hexagon: layer 0 = 1 tile, layer n adds 6n tiles
@@ -3682,28 +2908,12 @@ export const init = async (): Promise<void> => {
     // Generate hexagon grid - all tiles will be rendered
     const renderHexGrid = HEX_UTILS.generateHexGrid(renderRings, renderCenterQ, renderCenterR);
     
-    // Calculate center hex's world position for proper centering
     const centerWorldPos = HEX_UTILS.hexToWorld(renderCenterQ, renderCenterR, hexSize);
     
-    // Debug: Log rendering stats
-    if (addLogEntry !== null) {
-      const logFn = addLogEntry;
-      logFn(`Rendering: Generated ${renderHexGrid.length} hexagon tiles for rendering`, 'info');
-      logFn(`Rendering: Center hex at (${renderCenterQ}, ${renderCenterR}) -> world (${centerWorldPos.x.toFixed(2)}, ${centerWorldPos.z.toFixed(2)})`, 'info');
-    }
-    
-    // Get the single base mesh (no clones - only thin instancing)
     const baseMesh = baseMeshes.get('base');
     if (!baseMesh) {
-      if (addLogEntry !== null) {
-        addLogEntry('Base mesh not found for rendering', 'error');
-      }
+      log('Base mesh not found for rendering', 'error');
       return;
-    }
-    
-    // Log base mesh info
-    if (addLogEntry !== null) {
-      addLogEntry(`Base mesh retrieved: name=${baseMesh.name}, vertices=${baseMesh.getTotalVertices()}, currentThinInstanceCount=${baseMesh.thinInstanceCount}`, 'info');
     }
     
     // Prepare data for thin instances
@@ -3734,224 +2944,43 @@ export const init = async (): Promise<void> => {
     
     const numInstances = validHexes.length;
     
-    if (addLogEntry !== null) {
-      addLogEntry(`Mesh grid generation: ${numInstances} valid hexes collected from ${renderHexGrid.length} total hexes`, 'info');
-    }
-    
     if (numInstances === 0) {
-      if (addLogEntry !== null) {
-        addLogEntry('No valid tiles to render', 'warning');
-      }
       return;
     }
     
-    // Create transformation matrices for thin instances
-    const matrices = new Float32Array(numInstances * 16); // 16 floats per matrix (4x4)
-    
-    // Create color buffer for thin instances (RGBA, 4 components per instance)
+    const matrices = new Float32Array(numInstances * 16);
     const bufferColors = new Float32Array(numInstances * 4);
-    
-    if (addLogEntry !== null) {
-      addLogEntry(`Mesh grid buffers: matrices=${matrices.length} floats (${numInstances} instances × 16), colors=${bufferColors.length} floats (${numInstances} instances × 4)`, 'info');
-    }
-    
-    // Populate matrices and colors
-    // Get base mesh scaling to preserve model dimensions in thin instances
     const baseMeshScaling = baseMesh.scaling.clone();
     
     for (let i = 0; i < numInstances; i++) {
       const { tileType, worldPos } = validHexes[i];
-      
-      // Create transformation matrix for this instance
-      // Include scaling to preserve model dimensions (17.3m × 20m from TILE_CONFIG)
       const translation = new Vector3(worldPos.x, worldPos.y, worldPos.z);
       const scaling = baseMeshScaling.clone();
       const rotation = Quaternion.Identity();
       const matrix = Matrix.Compose(scaling, rotation, translation);
-      
-      // Copy matrix data to the matrices array using copyToArray method
       matrix.copyToArray(matrices, i * 16);
       
-      // Get color for this tile type and convert to RGBA
       const color = getTileColor(tileType);
-      bufferColors[i * 4] = color.r;     // Red
-      bufferColors[i * 4 + 1] = color.g; // Green
-      bufferColors[i * 4 + 2] = color.b; // Blue
-      bufferColors[i * 4 + 3] = 1.0;     // Alpha
-      
-      // Log first few instances for debugging
-      if (i < 3 && addLogEntry !== null) {
-        addLogEntry(`Instance ${i}: tileType=${tileType.type}, pos=(${worldPos.x.toFixed(2)}, ${worldPos.y.toFixed(2)}, ${worldPos.z.toFixed(2)}), color=(${color.r.toFixed(2)}, ${color.g.toFixed(2)}, ${color.b.toFixed(2)})`, 'info');
-      }
+      bufferColors[i * 4] = color.r;
+      bufferColors[i * 4 + 1] = color.g;
+      bufferColors[i * 4 + 2] = color.b;
+      bufferColors[i * 4 + 3] = 1.0;
     }
     
-    if (addLogEntry !== null) {
-      addLogEntry(`Populated ${numInstances} instance matrices and colors`, 'info');
-    }
-    
-    // Set up thin instances with matrices using thinInstanceSetBuffer
-    // The "matrix" attribute is the standard name for transformation matrices
     baseMesh.thinInstanceSetBuffer("matrix", matrices, 16);
-    
-    if (addLogEntry !== null) {
-      addLogEntry(`Thin instance matrix buffer set: ${numInstances} instances, buffer size=${matrices.length}`, 'info');
-    }
-    
-    // Register the color attribute for thin instances (required for per-instance colors)
-    // Use "color" attribute name (not "instanceColor") - this is the standard for thin instances
     baseMesh.thinInstanceRegisterAttribute("color", 4);
-    
-    // Set up thin instances with per-instance colors
-    // Use "color" attribute name for thin instance colors (BabylonJS standard)
     baseMesh.thinInstanceSetBuffer("color", bufferColors, 4);
-    
-    if (addLogEntry !== null) {
-      addLogEntry(`Thin instance color buffer set: ${numInstances} instances, buffer size=${bufferColors.length}`, 'info');
-    }
-    
-    // Set thin instance count after setting buffers (required for thin instances to render)
     baseMesh.thinInstanceCount = numInstances;
     
-    if (addLogEntry !== null) {
-      addLogEntry(`Thin instance count set: ${baseMesh.thinInstanceCount} (expected: ${numInstances})`, 'info');
-    }
-    
-    // Apply a base material to the mesh
-    // PBRMaterial supports per-instance colors with thin instances when color attribute is registered
     const baseMaterial = materials.get('grass');
     if (baseMaterial) {
       baseMesh.material = baseMaterial;
-      if (addLogEntry !== null) {
-        addLogEntry(`Base material applied: ${baseMaterial.name}`, 'info');
-      }
-    } else {
-      if (addLogEntry !== null) {
-        addLogEntry('Warning: No base material found for thin instances', 'warning');
-      }
     }
     
-    // Make the base mesh visible so thin instances render
-    // Thin instances are rendered as part of the base mesh
     baseMesh.isVisible = true;
     
-    if (addLogEntry !== null) {
-      addLogEntry(`Base mesh visibility set: isVisible=${baseMesh.isVisible}, thinInstanceCount=${baseMesh.thinInstanceCount}`, 'info');
-    }
-    
-    const renderedCount = numInstances;
-    
-    // Debug: Log actual rendered count
-    if (addLogEntry !== null) {
-      const logFn = addLogEntry;
-      logFn(`Rendering: Actually rendered ${renderedCount} tiles`, 'info');
-    }
-    
-    // Log grid statistics
-    if (WASM_BABYLON_CHUNKS.wasmModule && addLogEntry !== null) {
-      const logEntryFn: (message: string, type?: 'info' | 'success' | 'warning' | 'error') => void = addLogEntry;
-      try {
-        // Calculate expected hexagon tile count
-        const expectedHexagonTiles = 3 * renderRings * (renderRings + 1) + 1;
-        logEntryFn(`Stats: Expected hexagon tiles: ${expectedHexagonTiles} (${renderRings} rings)`, 'info');
-        
-        // Get WASM stats (from hash map)
-        const statsJson = WASM_BABYLON_CHUNKS.wasmModule.get_stats();
-        const parsed: unknown = JSON.parse(statsJson);
-        
-        // Validate the structure using direct property access with type narrowing
-        // Check that parsed is an object with all required numeric properties
-        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-          // Use direct property access with proper type checks
-          if (
-            'grass' in parsed &&
-            'building' in parsed &&
-            'road' in parsed &&
-            'forest' in parsed &&
-            'water' in parsed &&
-            'total' in parsed
-          ) {
-            const grassVal = parsed.grass;
-            const buildingVal = parsed.building;
-            const roadVal = parsed.road;
-            const forestVal = parsed.forest;
-            const waterVal = parsed.water;
-            const totalVal = parsed.total;
-            
-            if (
-              typeof grassVal === 'number' &&
-              typeof buildingVal === 'number' &&
-              typeof roadVal === 'number' &&
-              typeof forestVal === 'number' &&
-              typeof waterVal === 'number' &&
-              typeof totalVal === 'number'
-            ) {
-              // WASM stats (from hash map)
-              const wasmStats = {
-                grass: grassVal,
-                building: buildingVal,
-                road: roadVal,
-                forest: forestVal,
-                water: waterVal,
-                total: totalVal,
-              };
-              
-              // Log WASM stats
-              logEntryFn(`Stats: WASM total: ${wasmStats.total} tiles`, 'info');
-              
-              // Get filtered hexagon stats (only counts hexagon tiles)
-              const hexagonStats = getHexagonStats(renderRings, renderCenterQ, renderCenterR);
-              
-              if (hexagonStats) {
-                logEntryFn(`Stats: Hexagon filtered total: ${hexagonStats.total} tiles (expected: ${expectedHexagonTiles})`, 'info');
-                
-                // Log filtered stats (hexagon tiles only)
-                const statsMessage = `Grid Stats (Hexagon Only): Grass: ${hexagonStats.grass}, Building: ${hexagonStats.building}, Road: ${hexagonStats.road}, Forest: ${hexagonStats.forest}, Water: ${hexagonStats.water}, Total: ${hexagonStats.total}`;
-                logEntryFn(statsMessage, 'info');
-                
-                // Log user prompt for comparison with generated stats
-                if (lastUserPrompt !== null) {
-                  logEntryFn(`User Prompt: "${lastUserPrompt}"`, 'info');
-                  logEntryFn(`Prompt vs Stats Analysis:`, 'info');
-                  
-                  // Calculate percentages for better comparison
-                  const total = hexagonStats.total;
-                  const grassPercent = total > 0 ? ((hexagonStats.grass / total) * 100).toFixed(1) : '0.0';
-                  const buildingPercent = total > 0 ? ((hexagonStats.building / total) * 100).toFixed(1) : '0.0';
-                  const roadPercent = total > 0 ? ((hexagonStats.road / total) * 100).toFixed(1) : '0.0';
-                  const forestPercent = total > 0 ? ((hexagonStats.forest / total) * 100).toFixed(1) : '0.0';
-                  const waterPercent = total > 0 ? ((hexagonStats.water / total) * 100).toFixed(1) : '0.0';
-                  
-                  logEntryFn(`  - Grass: ${hexagonStats.grass} (${grassPercent}%)`, 'info');
-                  logEntryFn(`  - Building: ${hexagonStats.building} (${buildingPercent}%)`, 'info');
-                  logEntryFn(`  - Road: ${hexagonStats.road} (${roadPercent}%)`, 'info');
-                  logEntryFn(`  - Forest: ${hexagonStats.forest} (${forestPercent}%)`, 'info');
-                  logEntryFn(`  - Water: ${hexagonStats.water} (${waterPercent}%)`, 'info');
-                }
-                
-                // Log comparison
-                logEntryFn(`Stats Comparison: WASM: ${wasmStats.total}, Hexagon (filtered): ${hexagonStats.total}, Expected: ${expectedHexagonTiles}`, 'info');
-              } else {
-                logEntryFn('Failed to get hexagon stats: WASM module unavailable', 'warning');
-              }
-            } else {
-              logEntryFn(`Invalid stats structure from WASM: missing or invalid numeric properties. Received: ${statsJson.substring(0, 200)}`, 'warning');
-            }
-          } else {
-            logEntryFn(`Invalid stats structure from WASM: missing required properties (grass, building, road, forest, water, total)`, 'warning');
-          }
-        } else {
-          logEntryFn(`Invalid stats structure from WASM: not an object. Type: ${typeof parsed}, Value: ${JSON.stringify(parsed).substring(0, 200)}`, 'warning');
-        }
-      } catch (error) {
-        // If stats parsing fails, log error but don't break rendering
-        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-        logEntryFn(`Failed to get grid stats: ${errorMsg}`, 'warning');
-      }
-    }
   };
   
-  // Initial render (clear any previous prompt since this is not from text-to-layout)
-  lastUserPrompt = null;
   renderGrid();
   
   // Set up Babylon 2D UI
@@ -3969,8 +2998,6 @@ export const init = async (): Promise<void> => {
   recomputeButton.left = '-220px'; // Position from right edge (button width + gap)
   recomputeButton.onPointerClickObservable.add(() => {
     if (WASM_BABYLON_CHUNKS.wasmModule) {
-      // Clear last user prompt since this is not from text-to-layout generation
-      lastUserPrompt = null;
       renderGrid();
     }
   });
@@ -4074,18 +3101,12 @@ export const init = async (): Promise<void> => {
           WASM_BABYLON_CHUNKS.wasmModule.clear_pre_constraints();
         }
         
-        // Clear last user prompt
-        lastUserPrompt = null;
-        
         // Clear thin instances
         const baseMeshForCleanup = baseMeshes.get('base');
         if (baseMeshForCleanup) {
           baseMeshForCleanup.thinInstanceCount = 0;
         }
         
-        if (addLogEntry !== null) {
-          addLogEntry(`Rings changed to ${selectedRings}, cleared all state and reset camera`, 'info');
-        }
         
         // Re-render with new rings
         renderGrid();
