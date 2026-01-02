@@ -921,6 +921,15 @@ pub fn init() {
     console_error_panic_hook::set_once();
 }
 
+/// Get WASM module version for debugging and cache verification
+/// 
+/// Returns a version string that can be used to verify which WASM build is loaded.
+/// Update this version when making significant changes to help debug caching issues.
+#[wasm_bindgen]
+pub fn get_wasm_version() -> String {
+    "1.0.0-20250102-0912".to_string()
+}
+
 /// Generate a simplified layout using pre-constraints
 /// 
 /// **Learning Point**: This implements a simple algorithm:

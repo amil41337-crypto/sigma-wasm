@@ -14,7 +14,7 @@
  * - Fullscreen support
  */
 
-import type { WasmBabylonWfc as WasmBabylonChunks, WasmModuleBabylonWfc as WasmModuleBabylonChunks, TileType, LayoutConstraints, BuildingRules } from '../types';
+import type { WasmBabylonWfc as WasmBabylonChunks, WasmModuleBabylonChunks, TileType, LayoutConstraints, BuildingRules } from '../types';
 import { loadWasmModule, validateWasmModule } from '../wasm/loader';
 import { WasmLoadError, WasmInitError } from '../wasm/types';
 import { Engine, Scene, ArcRotateCamera, HemisphericLight, DirectionalLight, Vector3, Mesh, StandardMaterial, Color3, Matrix, Quaternion } from '@babylonjs/core';
@@ -153,6 +153,9 @@ const getInitWasm = async (): Promise<unknown> => {
     if (!('generate_road_network_growing_tree' in moduleUnknown) || typeof moduleUnknown.generate_road_network_growing_tree !== 'function') {
       throw new Error(`Module missing 'generate_road_network_growing_tree' export. Available: ${moduleKeys.join(', ')}`);
     }
+    if (!('get_wasm_version' in moduleUnknown) || typeof moduleUnknown.get_wasm_version !== 'function') {
+      throw new Error(`Module missing 'get_wasm_version' export. Available: ${moduleKeys.join(', ')}`);
+    }
     
     // Store module as Record after validation
     // TypeScript can't narrow dynamic import types, so we use Record pattern
@@ -281,6 +284,7 @@ function validateBabylonChunksModule(exports: unknown): WasmModuleBabylonChunks 
   const hexAstarValue = getProperty(exports, 'hex_astar');
   const buildPathBetweenRoadsValue = getProperty(exports, 'build_path_between_roads');
   const generateRoadNetworkGrowingTreeValue = getProperty(exports, 'generate_road_network_growing_tree');
+  const getWasmVersionValue = getProperty(exports, 'get_wasm_version');
   
   if (typeof generateLayoutValue !== 'function') {
     missingExports.push('generate_layout (function)');
@@ -337,6 +341,7 @@ function validateBabylonChunksModule(exports: unknown): WasmModuleBabylonChunks 
   const hexAstarFunc = hexAstarValue;
   const buildPathBetweenRoadsFunc = buildPathBetweenRoadsValue;
   const generateRoadNetworkGrowingTreeFunc = generateRoadNetworkGrowingTreeValue;
+  const getWasmVersionFunc = getWasmVersionValue;
   
   if (
     typeof generateLayoutFunc !== 'function' ||
@@ -349,7 +354,8 @@ function validateBabylonChunksModule(exports: unknown): WasmModuleBabylonChunks 
     typeof validateRoadConnectivityFunc !== 'function' ||
     typeof hexAstarFunc !== 'function' ||
     typeof buildPathBetweenRoadsFunc !== 'function' ||
-    typeof generateRoadNetworkGrowingTreeFunc !== 'function'
+    typeof generateRoadNetworkGrowingTreeFunc !== 'function' ||
+    typeof getWasmVersionFunc !== 'function'
   ) {
     return null;
   }
@@ -433,6 +439,11 @@ function validateBabylonChunksModule(exports: unknown): WasmModuleBabylonChunks 
       // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment
       const result = generateRoadNetworkGrowingTreeFunc(seeds_json, valid_terrain_json, occupied_json, target_count);
       return typeof result === 'string' ? result : '[]';
+    },
+    get_wasm_version: (): string => {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment
+      const result = getWasmVersionFunc();
+      return typeof result === 'string' ? result : 'unknown';
     },
   };
 }
@@ -3220,6 +3231,12 @@ export const init = async (): Promise<void> => {
     }
     
     WASM_BABYLON_CHUNKS.wasmModule = wasmModule;
+    
+    // Log WASM version for debugging and cache verification
+    if (addLogEntry !== null) {
+      const wasmVersion = wasmModule.get_wasm_version();
+      addLogEntry(`WASM module version: ${wasmVersion}`, 'info');
+    }
   } catch (error) {
     if (errorEl) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';

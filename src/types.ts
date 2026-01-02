@@ -307,6 +307,13 @@ export interface WasmModuleBabylonWfc {
 }
 
 /**
+ * WASM module interface for babylon-chunks (extends WasmModuleBabylonWfc with version info)
+ */
+export interface WasmModuleBabylonChunks extends WasmModuleBabylonWfc {
+  get_wasm_version(): string;
+}
+
+/**
  * State management interface for Babylon WFC route handler
  * 
  * **Learning Point**: This follows the same pattern as other route handlers
