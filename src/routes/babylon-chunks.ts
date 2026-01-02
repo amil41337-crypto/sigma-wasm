@@ -3505,13 +3505,12 @@ export const init = async (): Promise<void> => {
         const tileNum = tileTypeToNumber(preConstraint.tileType);
         WASM_BABYLON_CHUNKS.wasmModule.set_pre_constraint(preConstraint.q, preConstraint.r, tileNum);
       }
-      
-      // Generate new layout
-      const generateLayout = WASM_BABYLON_CHUNKS.wasmModule.generate_layout.bind(WASM_BABYLON_CHUNKS.wasmModule);
-      generateLayout();
     }
-    // If constraints were provided, pre-constraints and layout were already generated
-    // Just render what's already in WASM
+    
+    // Always call generate_layout() to ensure grid is populated before rendering and stats
+    // This is safe even if called multiple times - it will apply pre-constraints to grid
+    const generateLayout = WASM_BABYLON_CHUNKS.wasmModule.generate_layout.bind(WASM_BABYLON_CHUNKS.wasmModule);
+    generateLayout();
     
     // Create instances for each hex tile - render all hexagon pattern tiles
     // Layer-based hexagon: layer 0 = 1 tile, layer n adds 6n tiles

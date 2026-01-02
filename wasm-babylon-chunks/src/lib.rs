@@ -800,9 +800,10 @@ pub fn generate_voronoi_regions(
     let mut seeds: Vec<VoronoiSeed> = Vec::new();
     
     // Helper to get a random hex coordinate from the grid
+    // Use floor() to ensure index is always in valid range [0, hex_count)
     let get_random_hex = || {
         if hex_count > 0 {
-            let index = (Math::random() * hex_count as f64) as usize;
+            let index = (Math::random() * hex_count as f64).floor() as usize;
             if index < hex_count {
                 Some(hex_vec[index])
             } else {
