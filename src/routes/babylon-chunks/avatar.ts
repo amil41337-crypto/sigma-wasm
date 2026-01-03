@@ -143,11 +143,15 @@ export class Avatar {
   }
 
   /**
-   * Get current world position
+   * Get current world position (absolute position)
+   * Always returns the absolute world position, which remains stable even when floating origin shifts meshes
+   * This ensures chunk loading and tile calculations work correctly with floating origin
    */
   getPosition(): Vector3 {
     if (this.mesh) {
-      return this.mesh.position.clone();
+      // Use getAbsolutePosition() to get world position, not local position
+      // This ensures position is correct even when floating origin shifts meshes
+      return this.mesh.getAbsolutePosition();
     }
     return Vector3.Zero();
   }

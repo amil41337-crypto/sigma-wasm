@@ -129,6 +129,9 @@ export class CanvasManager {
   private currentTileText: TextBlock | null = null;
   private previousTileText: TextBlock | null = null;
   private currentChunkText: TextBlock | null = null;
+  private player: { getAvatar: () => { getMesh: () => Mesh | null } } | null = null;
+  private floatingOriginThreshold: number = 1000; // Distance threshold for floating origin updates
+  private currentFloatingOrigin: Vector3 = Vector3.Zero(); // Current floating origin position
 
   constructor(
     wasmManager: WasmManager,
@@ -188,6 +191,10 @@ export class CanvasManager {
     
     // Create scene
     this.scene = new Scene(this.engine);
+    
+    // Initialize floating origin at (0, 0, 0)
+    // This will be updated to follow the player avatar position
+    this.currentFloatingOrigin = Vector3.Zero();
     
     // Set up camera manager with default mode 'simple-follow'
     if (this.scene) {
@@ -1326,6 +1333,79 @@ export class CanvasManager {
    */
   getScene(): Scene | null {
     return this.scene;
+  }
+
+  /**
+   * Set the player reference for floating origin tracking
+   * The floating origin will follow the player avatar's root mesh position
+   * @param player - Player instance with getAvatar() method
+   */
+  setPlayer(player: { getAvatar: () => { getMesh: () => Mesh | null } }): void {
+    this.player = player;
+    
+    if (this.logFn) {
+      this.log('Floating origin tracking enabled for player avatar', 'info');
+    }
+  }
+
+  /**
+   * Update floating origin to follow player avatar position
+   * Should be called every frame or at regular intervals
+   * This maintains precision by keeping the coordinate system centered on the player
+   * 
+   * Implements floating origin by shifting all meshes when player moves beyond threshold
+   * This prevents floating-point precision errors at large distances
+   */
+  updateFloatingOrigin(): void {
+    if (!this.scene || !this.player) {
+      return;
+    }
+
+    const avatar = this.player.getAvatar();
+    const avatarMesh = avatar.getMesh();
+    
+    if (!avatarMesh) {
+      return;
+    }
+
+    // Get current avatar world position
+    const avatarPosition = avatarMesh.getAbsolutePosition();
+    
+    // Check if avatar has moved beyond threshold from current floating origin
+    const distanceFromOrigin = Vector3.Distance(avatarPosition, this.currentFloatingOrigin);
+    
+    // Update floating origin if player has moved significantly
+    // This maintains precision by keeping the coordinate system centered on the player
+    if (distanceFromOrigin > this.floatingOriginThreshold) {
+      // Calculate offset to shift all meshes (clone to avoid mutating avatarPosition)
+      const offset = avatarPosition.clone().subtract(this.currentFloatingOrigin);
+      
+      // Shift all meshes in the scene to maintain precision
+      // This effectively moves the world coordinate system to keep player near origin
+      // All meshes including the avatar are shifted to maintain relative positions
+      const meshes = this.scene.meshes;
+      for (const mesh of meshes) {
+        // Shift mesh position by the offset
+        mesh.position.subtractInPlace(offset);
+      }
+      
+      // Shift all lights in the scene that have a position property
+      const lights = this.scene.lights;
+      for (const light of lights) {
+        // Only shift lights that have a position property (e.g., PointLight, SpotLight)
+        // DirectionalLight and HemisphericLight don't have position, they use direction
+        if ('position' in light && light.position instanceof Vector3) {
+          light.position.subtractInPlace(offset);
+        }
+      }
+      
+      // Update current floating origin to player's position
+      this.currentFloatingOrigin = avatarPosition.clone();
+      
+      if (this.logFn) {
+        this.log(`Floating origin updated to player position: (${this.currentFloatingOrigin.x.toFixed(2)}, ${this.currentFloatingOrigin.y.toFixed(2)}, ${this.currentFloatingOrigin.z.toFixed(2)})`, 'info');
+      }
+    }
   }
 
   /**

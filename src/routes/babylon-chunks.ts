@@ -175,7 +175,7 @@ interface DistanceCheckCache {
   lastChunkCount: number;
 }
 
-let distanceCheckCache: DistanceCheckCache = {
+const distanceCheckCache: DistanceCheckCache = {
   lastChunkHex: null,
   maxDistance: 0,
   lastChunkCount: 0,
@@ -561,6 +561,9 @@ export const init = async (): Promise<void> => {
     if (cameraManager) {
       cameraManager.setPlayer(player);
     }
+    
+    // Set player reference in canvas manager for floating origin tracking
+    canvasManager.setPlayer(player);
   }
   
   // Run tests if mode is test
@@ -681,6 +684,10 @@ export const init = async (): Promise<void> => {
       if (cameraManager) {
         cameraManager.update();
       }
+      
+      // Update floating origin to follow player avatar position
+      // This maintains precision by keeping coordinate system centered on player
+      canvasManager.updateFloatingOrigin();
       
       // Check chunk loading every CHECK_INTERVAL frames (only if player is enabled)
       if (frameCount % CHECK_INTERVAL === 0 && player && player.getEnabled()) {
@@ -902,6 +909,9 @@ export const init = async (): Promise<void> => {
         if (newCameraManager) {
           newCameraManager.setPlayer(player);
         }
+        
+        // Set player reference in canvas manager for floating origin tracking
+        newCanvasManager.setPlayer(player);
       } else {
         player = null;
       }
@@ -954,6 +964,10 @@ export const init = async (): Promise<void> => {
           if (newCameraManager) {
             newCameraManager.update();
           }
+          
+          // Update floating origin to follow player avatar position
+          // This maintains precision by keeping coordinate system centered on player
+          newCanvasManager.updateFloatingOrigin();
           
           // Check chunk loading every CHECK_INTERVAL frames (only if player is enabled)
           if (frameCount % CHECK_INTERVAL === 0 && player && player.getEnabled()) {

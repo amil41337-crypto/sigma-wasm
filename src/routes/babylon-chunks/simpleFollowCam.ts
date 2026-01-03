@@ -110,7 +110,8 @@ export class SimpleFollowCam {
     
     // If we just set a target and camera exists, initialize camera position immediately
     if (mesh && wasNull && this.camera) {
-      const targetPosition = mesh.position.clone();
+      // Use absolute position to ensure correct positioning with floating origin
+      const targetPosition = mesh.getAbsolutePosition();
       const targetRotationY = mesh.rotation.y;
       const yRot = Quaternion.FromEulerAngles(0, targetRotationY, 0);
       const rotatedOffset = this.offset.rotateByQuaternionToRef(yRot, Vector3.Zero());
@@ -152,9 +153,11 @@ export class SimpleFollowCam {
     }
 
     // Rotate offset by target's Y rotation (exactly like the example)
+    // Use absolute position to ensure correct positioning with floating origin
+    const targetPosition = this.targetMesh.getAbsolutePosition();
     const yRot = Quaternion.FromEulerAngles(0, this.targetMesh.rotation.y, 0);
     const rotatedOffset = this.offset.rotateByQuaternionToRef(yRot, Vector3.Zero());
-    const desiredPos = this.targetMesh.position.add(rotatedOffset);
+    const desiredPos = targetPosition.add(rotatedOffset);
 
     // Calculate dynamic smoothing based on offset.z (exactly like the example)
     // Closer camera (smaller offset.z, more negative) = more responsive (higher smoothing value)
@@ -171,8 +174,8 @@ export class SimpleFollowCam {
       this.camera.position
     );
 
-    // Set locked target (exactly like the example)
-    this.camera.lockedTarget = this.targetMesh.position;
+    // Set locked target using absolute position to ensure correct positioning with floating origin
+    this.camera.lockedTarget = targetPosition;
   }
 
   /**
