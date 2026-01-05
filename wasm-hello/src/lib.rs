@@ -23,7 +23,7 @@ impl HelloState {
     fn new() -> Self {
         HelloState {
             counter: 0,
-            message: String::from("Hello from WASM!"),
+            message: String::from("Hi from Maine!"),
         }
     }
     
